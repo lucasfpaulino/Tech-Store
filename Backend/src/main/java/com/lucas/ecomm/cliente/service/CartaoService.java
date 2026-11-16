@@ -55,10 +55,10 @@ public class CartaoService {
                 auditoria.registrar("ALTERAR_PREFERENCIA","Cartao:"+c.getId(),antes,CartaoResponse.de(c));
             }
         }
-        repository.flush(); // Libera o índice único parcial antes de marcar outro preferencial.
+        repository.flush();
         escolhido.setPreferencial(true);
     }
-    // Valida a composição e o domínio sem persistir PAN/CVV ou associar o cartão ao perfil.
+
     public CartaoModel prepararCompra(UUID clienteId, CartaoRequest r) {
         var model=new CartaoModel(); model.setCliente(clientes.exigir(clienteId));
         model.setBandeira(bandeiras.findByNomeIgnoreCase(r.bandeira()).orElseThrow(()->RegraException.invalido("Bandeira não cadastrada.")));
@@ -83,7 +83,7 @@ public class CartaoService {
         }
         model.setCliente(cliente); model.setBandeira(bandeira); model.setTitular(r.titular().strip()); model.setValidade(r.validade());
         if(r.preferencial()||repository.findByClienteIdOrderByCriadoEmAsc(clienteId).isEmpty()) preferir(clienteId,model);
-        // Desmarcar o único preferencial não é permitido; escolha outro cartão pela ação dedicada.
+        // Mantém um cartão preferencial
         repository.saveAndFlush(model); var depois=CartaoResponse.de(model);
         auditoria.registrar(id==null?"CADASTRAR":"ALTERAR","Cartao:"+model.getId(),antes,depois); return depois;
     }

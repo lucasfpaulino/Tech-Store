@@ -10,7 +10,7 @@ describe('Interface — legibilidade e carregamento', () => {
       cy.get('.cart-action b').should('have.text', '1')
       cy.visit('/carrinho')
       cy.contains('a', /^Finalizar compra$/).should('have.attr', 'aria-disabled', 'false')
-      // Avança somente a data da interface. A expiração no servidor tem teste de integração próprio.
+      // Avança o relógio da interface
       cy.clock(Date.now(), ['Date'])
       cy.tick(31 * 60 * 1000)
       cy.contains('a', /^Finalizar compra$/).should('have.attr', 'aria-disabled', 'true').and('have.attr', 'href', '/carrinho')
@@ -39,7 +39,7 @@ describe('Interface — legibilidade e carregamento', () => {
   })
   it('mostra o spinner enquanto a API real carrega um produto, sem piscar a tela 404', () => {
     apiCustomer().then(cliente => apiProduct().then(produto => {
-      // Atrasa apenas a entrega da resposta real para observar o estado de carregamento.
+      // Atrasa a resposta para verificar o loading
       cy.intercept('GET', '**/api/produtos', request => request.continue(response => { response.setDelay(3500) })).as('catalogoLento')
       selectProfile(cliente.id, '/produtos/' + produto.id)
       cy.get('[role="progressbar"][aria-label="Carregando produto..."]').should('be.visible')
@@ -65,7 +65,7 @@ describe('Interface — legibilidade e carregamento', () => {
       mostrarProdutoNoCatalogo(produtos[1])
       cy.get('.book-grid .book-card').first().then(card => {
         const primeiraFileira = card[0].getBoundingClientRect()
-        // A rolagem não passa da primeira fileira para alcançar produtos antigos.
+        // Mantém a primeira fileira visível
         expect(primeiraFileira.top).to.be.at.least(0)
         expect(primeiraFileira.bottom).to.be.at.most(1050)
       })

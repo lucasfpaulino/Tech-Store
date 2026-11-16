@@ -15,7 +15,7 @@ public class AnaliseVendaRepository {
               sum(i.preco_unitario*i.quantidade) total
             FROM pedidos p JOIN itens_pedido i ON i.pedido_id=p.id
               JOIN item_pedido_categorias hc ON hc.item_pedido_id=i.id
-            WHERE p.status IN ('APROVADA','PAGAMENTO REALIZADO','EM TRANSPORTE','EM TRÂNSITO','ENTREGUE')
+            WHERE p.status = 'ENTREGUE'
               AND p.criado_em >= :inicio AND p.criado_em < :fim AND hc.categoria_id IN (:categorias)
             GROUP BY hc.categoria_id,mes ORDER BY mes
             """,Map.of("inicio",java.sql.Timestamp.from(inicio.atStartOfDay(ZoneId.of("America/Sao_Paulo")).toInstant()),

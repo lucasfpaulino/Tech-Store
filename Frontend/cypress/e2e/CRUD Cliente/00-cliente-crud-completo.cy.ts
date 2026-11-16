@@ -5,7 +5,7 @@ describe('Cliente — fluxo completo do CRUD pela própria conta', () => {
   it('RF0021/RF0024/RF0022/RF0023 — cadastra, consulta, altera, inativa e reativa o mesmo cliente', () => {
     cy.log('RF0021 — cadastro pela interface, com dados e endereço obrigatórios')
     cy.intercept('GET', /\/api\/clientes\/[0-9a-f-]+$/).as('consultarCliente')
-    // Um único cenário mantém o mesmo cliente durante todo o CRUD, sem depender de outro arquivo.
+    // Usa o mesmo cliente em todo o CRUD
     registerCustomerThroughUi().then(cliente => {
       const novoNome = cliente.nome + ' Alterado'
       const novoEmail = 'crud-' + cliente.cpf + '@techstore.test'
@@ -16,7 +16,7 @@ describe('Cliente — fluxo completo do CRUD pela própria conta', () => {
         for (const value of [cliente.id, cliente.cpf, email, telefone, ativo ? 'Ativo' : 'Inativo']) {
           cy.get('input').filter((_, input) => (input as HTMLInputElement).value === value).should('have.length.at.least', 1)
         }
-        // Consulta complementar: a ação avaliada é sempre executada pelos botões da interface.
+        // Confere a persistência pela API
         cy.request('/api/clientes/' + cliente.id).then(({ body }) => {
           expect(body.id).to.eq(cliente.id)
           expect(body.cpf).to.eq(cliente.cpf)

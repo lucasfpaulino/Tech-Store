@@ -13,7 +13,7 @@ public class AuditoriaService {
         this.entityManager=entityManager; this.mapper=mapper;
     }
     public void registrar(String operacao, String entidade, Object antes, Object depois) {
-        // Identidade contextual local; não é autenticação. Recebe somente DTOs sem segredos.
+        // Registra o perfil local e os dados alterados
         var atributos=org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
         String perfil=atributos instanceof org.springframework.web.context.request.ServletRequestAttributes servlet
             ? servlet.getRequest().getHeader("X-Perfil") : "SISTEMA";

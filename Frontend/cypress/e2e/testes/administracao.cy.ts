@@ -1,11 +1,12 @@
 /// <reference types="cypress" />
-import { apiProduct, fill, submit } from '../../support/data'
+import { apiProduct, fill, selectProfile, submit } from '../../support/data'
 
 describe('Administração com histórico persistido — DRS atual', () => {
   before(() => { cy.task('prepararAdmin', null, { timeout: 65000 }); cy.task('prepararAdmin', null, { timeout: 65000 }) })
+  beforeEach(() => selectProfile('ADMIN', '/perfis'))
   it('Perfis locais — somente Lucas Paulino e Admin; demais clientes consultáveis sem login', () => {
     cy.visit('/perfis')
-    cy.get('a.profile-card').should('have.length', 3) // Admin, Lucas, ação de cadastro (não é perfil).
+    cy.get('a.profile-card').should('have.length', 3) // Admin, Lucas e cadastro
     cy.contains('a.profile-card', 'Lucas Paulino').should('be.visible')
     cy.contains('a.profile-card', 'Administrador').should('be.visible')
     cy.contains('a.profile-card', 'Marina Oliveira').should('not.exist')

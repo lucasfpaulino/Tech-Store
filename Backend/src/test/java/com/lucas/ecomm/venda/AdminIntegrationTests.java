@@ -52,7 +52,7 @@ class AdminIntegrationTests {
     }
     String solicitar(String c,String o,String p,int qty,int status) throws Exception { return postJson("/api/clientes/"+c+"/trocas",Map.of("orderId",o,"productId",p,"quantity",qty,"reason","Defeito"),status).get("id").asString(); }
     void enviado(String c,String troca) throws Exception {
-        patchJson("/api/trocas/"+troca+"/status",Map.of("status","TROCA ACEITA"),200);
+        patchJson("/api/trocas/"+troca+"/status",Map.of("status","TROCA AUTORIZADA"),200);
         postJson("/api/clientes/"+c+"/trocas/"+troca+"/despacho",Map.of("carrier","Transportadora local","trackingCode","TESTE-001","dispatchDate",java.time.LocalDate.now().toString()),200);
     }
     @Test void analiseFiltraStatusCategoriasEZeraMesSemVenda() throws Exception {
@@ -60,24 +60,36 @@ class AdminIntegrationTests {
         historico(c,p,"APROVADA",2,"2026-01-15T12:00:00-03:00"); historico(c,p,"ENTREGUE",1,"2026-03-01T00:00:00-03:00");
         historico(c,p,"CANCELADO",7,"2026-01-15T12:00:00-03:00"); historico(c,p,"REPROVADA",7,"2026-01-15T12:00:00-03:00");
         historico(c,p,"EM PROCESSAMENTO",7,"2026-01-15T12:00:00-03:00"); historico(c,p,"ENTREGUE",9,"2026-04-01T00:00:00-03:00");
-        var r=mvc.perform(get("/api/analises/vendas").param("inicio","2026-01-01").param("fim","2026-03-31")
+        var r=mvc.perform(get("/api/analises/vendas").header("X-Perfil","ADMIN").param("inicio","2026-01-01").param("fim","2026-03-31")
             .param("categorias",categoria("Placas de vídeo")+","+categoria("Memórias RAM"))).andExpect(status().isOk()).andReturn();
         var data=json.readTree(r.getResponse().getContentAsString()); assertThat(data.get("meses").size()).isEqualTo(3);
         for(int n=0;n<3;n++) assertThat(data.get("series").get(0).get("valores").get(n).asDouble()).isZero();
-        assertThat(data.get("series").get(1).get("valores").get(0).asDouble()).isEqualTo(200);
+        assertThat(data.get("series").get(1).get("valores").get(0).asDouble()).isZero();
         assertThat(data.get("series").get(1).get("valores").get(1).asDouble()).isZero();
         assertThat(data.get("series").get(1).get("valores").get(2).asDouble()).isEqualTo(100);
-        // Alterar a relação atual do catálogo não remove a categoria histórica.
+        // Preserva a categoria histórica
         jdbc.update("delete from produto_categorias where produto_id=?::uuid",p);
-        mvc.perform(get("/api/analises/vendas").param("inicio","2026-01-01").param("fim","2026-03-31").param("categorias",categoria("Placas de vídeo").toString()))
-            .andExpect(status().isOk()).andExpect(jsonPath("$.series[0].valores[0]").value(200));
+        mvc.perform(get("/api/analises/vendas").header("X-Perfil","ADMIN").param("inicio","2026-01-01").param("fim","2026-03-31").param("categorias",categoria("Placas de vídeo").toString()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.series[0].valores[0]").value(0));
+    }
+    @Test void analiseNegaOutrosPerfisERefleteEntregaNaConsultaSeguinte() throws Exception {
+        var c=cliente(); var p=produto(); var order=historico(c,p,"EM TRANSPORTE",3,"2026-07-15T12:00:00-03:00");
+        for(var perfil:List.of("VISITANTE",c)) mvc.perform(get("/api/analises/vendas").header("X-Perfil",perfil)
+            .param("inicio","2026-07-01").param("fim","2026-07-31").param("categorias",categoria("Placas de vídeo").toString())).andExpect(status().isForbidden());
+        mvc.perform(get("/api/analises/vendas")).andExpect(status().isForbidden());
+        mvc.perform(get("/api/analises/vendas/exportacao")).andExpect(status().isForbidden());
+        mvc.perform(get("/api/analises/vendas").header("X-Perfil","ADMIN").param("inicio","2026-07-01").param("fim","2026-07-31")
+            .param("categorias",categoria("Placas de vídeo").toString())).andExpect(status().isOk()).andExpect(jsonPath("$.series[0].valores[0]").value(0));
+        patchJson("/api/pedidos/"+order+"/status",Map.of("status","ENTREGUE"),200);
+        mvc.perform(get("/api/analises/vendas").header("X-Perfil","ADMIN").param("inicio","2026-07-01").param("fim","2026-07-31")
+            .param("categorias",categoria("Placas de vídeo").toString())).andExpect(status().isOk()).andExpect(jsonPath("$.series[0].valores[0]").value(300));
     }
     @Test void analiseValidaPeriodoECategoriasEExportaCsv() throws Exception {
         var cat=categoria("Placas de vídeo").toString();
         for(var dates:List.of(List.of("2026-03-01","2026-01-01"),List.of("2026-01-01","2026-01-02"),List.of("2024-01-01","2026-01-01")))
-            mvc.perform(get("/api/analises/vendas").param("inicio",dates.get(0)).param("fim",dates.get(1)).param("categorias",cat)).andExpect(status().isBadRequest());
-        mvc.perform(get("/api/analises/vendas").param("inicio","2026-01-01").param("fim","2026-01-31").param("categorias",UUID.randomUUID().toString())).andExpect(status().isNotFound());
-        var csv=mvc.perform(get("/api/analises/vendas/exportacao").param("inicio","2026-01-01").param("fim","2026-01-31").param("categorias",cat))
+            mvc.perform(get("/api/analises/vendas").header("X-Perfil","ADMIN").param("inicio",dates.get(0)).param("fim",dates.get(1)).param("categorias",cat)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/analises/vendas").header("X-Perfil","ADMIN").param("inicio","2026-01-01").param("fim","2026-01-31").param("categorias",UUID.randomUUID().toString())).andExpect(status().isNotFound());
+        var csv=mvc.perform(get("/api/analises/vendas/exportacao").header("X-Perfil","ADMIN").param("inicio","2026-01-01").param("fim","2026-01-31").param("categorias",cat))
             .andExpect(status().isOk()).andExpect(header().string("Content-Disposition","attachment; filename=tech-store-vendas.csv")).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
         assertThat(csv).startsWith("\uFEFFInício;Fim;Mês;Categoria;Valor (R$)").contains("2026-01;\"Placas de vídeo\";0,00");
     }
@@ -87,18 +99,19 @@ class AdminIntegrationTests {
         var result=patchJson("/api/trocas/"+t+"/status",Map.of("status","ITEM RECEBIDO","reentradaEstoque",true),200);
         assertThat(result.get("statusDrs").asString()).isEqualTo("TROCADO"); assertThat(result.get("couponCode").asString()).startsWith("TROCA-");
         patchJson("/api/trocas/"+t+"/status",Map.of("status","ITEM RECEBIDO","reentradaEstoque",true),200);
-        patchJson("/api/trocas/"+t+"/status",Map.of("status","TROCA PROCESSADA"),200);
+        patchJson("/api/trocas/"+t+"/status",Map.of("status","TROCADO","reentradaEstoque",true),200);
         assertThat(jdbc.queryForObject("select quantidade from estoques where produto_id=?::uuid",Integer.class,p)).isEqualTo(12);
         assertThat(jdbc.queryForObject("select count(*) from cupons where cliente_id=?::uuid",Integer.class,c)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select valor from cupons where cliente_id=?::uuid",java.math.BigDecimal.class,c)).isEqualByComparingTo("200");
         mvc.perform(get("/api/pedidos/"+o)).andExpect(jsonPath("$.status").value("TROCADO"));
-        mvc.perform(get("/api/clientes/"+c+"/transacoes")).andExpect(jsonPath("$.notificacoes.length()").value(3));
+        mvc.perform(get("/api/clientes/"+c+"/transacoes")).andExpect(jsonPath("$.notificacoes.length()").value(2));
     }
-    @Test void trocaParcialSemReentradaENegativaPermiteNovaSolicitacao() throws Exception {
+    @Test void trocaParcialSemReentradaPreservaOutrasUnidadesENegativaNaoEPermitida() throws Exception {
         var c=cliente(); var p=produto(); var o=historico(c,p,"ENTREGUE",2,"2026-01-15T12:00:00-03:00");
-        var negada=solicitar(c,o,p,1,201); patchJson("/api/trocas/"+negada+"/status",Map.of("status","TROCA NEGADA"),200);
-        var t=solicitar(c,o,p,1,201); enviado(c,t);
-        patchJson("/api/trocas/"+t+"/status",Map.of("status","ITEM RECEBIDO","reentradaEstoque",false),200);
+        var t=solicitar(c,o,p,1,201); patchJson("/api/trocas/"+t+"/status",Map.of("status","TROCA NEGADA"),400);
+        patchJson("/api/trocas/"+t+"/status",Map.of("status","TROCA AUTORIZADA"),200);
+        // O despacho é opcional para o recebimento
+        patchJson("/api/trocas/"+t+"/status",Map.of("status","TROCADO","reentradaEstoque",false),200);
         assertThat(jdbc.queryForObject("select quantidade from estoques where produto_id=?::uuid",Integer.class,p)).isEqualTo(10);
         mvc.perform(get("/api/pedidos/"+o)).andExpect(jsonPath("$.status").value("ENTREGUE"));
     }

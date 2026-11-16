@@ -13,7 +13,7 @@ function product() {
 describe('Base persistente dos módulos auxiliares', () => {
   it('Produto — cadastra pela tela, consulta, altera e deriva disponibilidade do estoque', () => {
     const name = 'GeForce RTX 5070 12GB - ' + Date.now()
-    cy.visit('/admin/produtos')
+    selectProfile('ADMIN', '/admin/produtos')
     cy.contains('button', 'Cadastrar produto').click()
     cy.get('form[aria-label="Cadastrar produto"]').within(() => {
       fill({ nome: name, marca: 'NVIDIA', descricao: 'Placa de vídeo GeForce RTX 5070 com 12 GB de memória.', imagem: '/images/products/rtx-5070-12gb.png', preco: '150.50', custo: '100', quantidade: '10', grupo: 'Padrão' })

@@ -20,6 +20,7 @@ import java.security.MessageDigest;
 import java.time.*;
 import java.util.*;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service @Transactional
@@ -33,17 +34,20 @@ public class PedidoService {
     private final FreteService frete; private final ProcessadorPagamento processador;
     private final ConsultaVendaService consultas; private final AuditoriaService auditoria;
     private final EnderecoService enderecoService; private final CartaoService cartaoService;
+    private final Duration atrasoPagamento;
     private static final BigDecimal ZERO=new BigDecimal("0.00");
     public PedidoService(ClienteService clientes,CarrinhoService carrinho,ItemCarrinhoRepository itensCarrinho,
         CarrinhoRepository carrinhos,EnderecoRepository enderecos,CartaoRepository cartoes,CupomRepository cupons,
         PedidoRepository pedidos,ItemPedidoRepository itens,PagamentoRepository pagamentos,PedidoCupomRepository aplicados,
         EstoqueRepository estoques,FreteService frete,ProcessadorPagamento processador,ConsultaVendaService consultas,AuditoriaService auditoria,
-        EnderecoService enderecoService,CartaoService cartaoService) {
+        EnderecoService enderecoService,CartaoService cartaoService,@Value("${app.pagamento.atraso-ms:5000}") long atrasoMs) {
         this.clientes=clientes; this.carrinho=carrinho; this.itensCarrinho=itensCarrinho; this.carrinhos=carrinhos;
         this.enderecos=enderecos; this.cartoes=cartoes; this.cupons=cupons; this.pedidos=pedidos; this.itens=itens;
         this.pagamentos=pagamentos; this.aplicados=aplicados; this.estoques=estoques; this.frete=frete;
         this.processador=processador; this.consultas=consultas; this.auditoria=auditoria;
         this.enderecoService=enderecoService; this.cartaoService=cartaoService;
+        if(atrasoMs<0) throw new IllegalArgumentException("Atraso de pagamento não pode ser negativo.");
+        this.atrasoPagamento=Duration.ofMillis(atrasoMs);
     }
     public record Selecao(UUID enderecoId,List<@NotNull UUID> cupomIds,@Valid EnderecoRequest novoEndereco) {
         public Selecao(UUID enderecoId,List<UUID> cupomIds) { this(enderecoId,cupomIds,null); }
@@ -71,7 +75,7 @@ public class PedidoService {
         var lista=ids.stream().sorted().map(id->cupons.bloquear(id).orElseThrow(()->RegraException.inexistente("Cupom não encontrado."))).toList();
         for(var c:lista) {
             if(c.getCliente()!=null&&!c.getCliente().getId().equals(clienteId)) throw RegraException.inexistente("Cupom não disponível para este cliente.");
-            if(c.getUtilizado()||c.getValidade().isBefore(LocalDate.now())) throw RegraException.conflito("Cupom "+c.getCodigo()+" utilizado ou expirado.");
+            if(!c.podeUtilizar()) throw RegraException.conflito("Cupom "+c.getCodigo()+" indisponível: "+c.situacao()+".");
         }
         if(lista.stream().filter(c->c.getTipo().equals("Promocional")).count()>1) throw RegraException.invalido("Utilize apenas um cupom promocional por compra.");
         return lista;
@@ -122,7 +126,7 @@ public class PedidoService {
             if(!destinos.add(c.getImpressaoDigital())) throw RegraException.invalido("Selecione cada cartão uma única vez.");
             cartoesCompra.add(c);
             if(YearMonth.parse(c.getValidade(),java.time.format.DateTimeFormatter.ofPattern("MM/yy")).isBefore(YearMonth.now())) throw RegraException.invalido("Cartão vencido.");
-            boolean excecao=!vouchers.isEmpty(); // RN0035: a combinação de cupons e cartões é a exceção à RN0034.
+            boolean excecao=!vouchers.isEmpty(); // RN0035
             if(pagamento.valor().compareTo(new BigDecimal("10.00"))<0&&!excecao) throw RegraException.invalido("Cada cartão deve pagar pelo menos R$ 10,00 quando não há cupons.");
             soma=soma.add(pagamento.valor());
         }
@@ -133,7 +137,8 @@ public class PedidoService {
             +(e.getObservacoes()==null||e.getObservacoes().isBlank()?"":" · "+e.getObservacoes()));
         p.setSubtotal(q.subtotal()); p.setFrete(q.frete()); p.setDesconto(q.desconto()); p.setTotal(q.totalCompra());
         p.setExcedenteCupons(q.creditoTroca()); p.setStatus("EM PROCESSAMENTO"); p.setControlaEstoque(true);
-        // RN0044: finalizar transfere o bloqueio; não reinicia o prazo da última inclusão.
+        p.setPagamentoAgendadoEm(Instant.now().plus(atrasoPagamento));
+        // RN0044
         p.setChaveOperacao(r.chaveOperacao()); p.setExpiraEm(q.expiresAt()); pedidos.saveAndFlush(p);
         for(var item:lista) {
             var i=new ItemPedidoModel(); i.setPedido(p); i.setProduto(item.getProduto()); i.setNomeProduto(item.getProduto().getNome());
@@ -148,18 +153,18 @@ public class PedidoService {
             pg.setValor(pag.valor()); pg.setStatus("PENDENTE");
             pg.setBandeira(c.getBandeira().getNome()); pg.setCartaoFinal(c.getUltimosDigitos()); pg.setCartaoValidade(c.getValidade()); pagamentos.save(pg);
         }
-        // RN0036 pertence à composição desta compra: o saldo é emitido sem aprovar pagamento ou baixar estoque.
+        // RN0036
         gerarCredito(p);
         BigDecimal restante=q.desconto();
         for(var c:vouchers) {
-            // Distribui centavos proporcionalmente: toda associação tem valor aplicado positivo.
+            // Distribui centavos proporcionalmente
             BigDecimal proporcao=c.getValor().multiply(q.desconto()).divide(vouchers.stream().map(CupomModel::getValor).reduce(ZERO,BigDecimal::add),2,java.math.RoundingMode.DOWN);
             BigDecimal utilizado=c==vouchers.getLast()?restante:proporcao; restante=restante.subtract(utilizado);
             if(utilizado.signum()>0) aplicados.save(new PedidoCupomModel(p,c,utilizado));
             var antesCupom=Map.of("clienteId",clienteId,"utilizado",c.getUtilizado()); c.setUtilizado(true);
             auditoria.registrar("UTILIZAR_CUPOM","Cupom:"+c.getId(),antesCupom,Map.of("clienteId",clienteId,"pedidoId",p.getId(),"codigo",c.getCodigo(),"utilizado",true));
         }
-        // A reserva passa do carrinho ao pedido; a quantidade física só baixa após aprovação.
+        // Transfere a reserva ao pedido
         itensCarrinho.deleteAll(lista); itensCarrinho.flush(); carrinhos.findByClienteId(clienteId).ifPresent(c->c.setExpiraEm(null));
         itens.flush(); pagamentos.flush(); aplicados.flush();
         var resultado=consultas.consultar(p.getId()); auditoria.registrar("FINALIZAR_COMPRA","Pedido:"+p.getId(),null,resultado);
@@ -171,7 +176,7 @@ public class PedidoService {
         return pedidos.bloquear(id).orElseThrow();
     }
     private void movimentarReserva(PedidoModel p,boolean aprovado) {
-        if(!p.getControlaEstoque()) return; // Históricos anteriores não possuíam reserva controlada.
+        if(!p.getControlaEstoque()) return; // Histórico sem reserva controlada
         for(var i:itens.findByPedidoId(p.getId()).stream().sorted(Comparator.comparing(i->i.getProduto().getId())).toList()) {
             var e=estoques.bloquear(i.getProduto().getId()).orElseThrow();
             if(e.getReservado()<i.getQuantidade()) throw RegraException.conflito("Reserva de estoque inconsistente. O pedido não foi alterado.");
@@ -183,35 +188,45 @@ public class PedidoService {
         }
     }
     private void devolverCupons(PedidoModel p) {
+        // Compatibilidade com créditos antigos
+        if(p.getCupomSaldo()!=null&&p.getCupomSaldo().getUtilizado())
+            throw RegraException.conflito("Crédito deste pedido já utilizado. A devolução não pode duplicar saldo.");
         for(var a:aplicados.findByPedidoId(p.getId()).stream().sorted(Comparator.comparing(a->a.getCupom().getId())).toList()) {
             var c=cupons.bloquear(a.getCupom().getId()).orElseThrow(); boolean utilizado=c.getUtilizado(); c.setUtilizado(false);
             auditoria.registrar("DEVOLVER_CUPOM","Cupom:"+c.getId(),Map.of("utilizado",utilizado),Map.of("clienteId",p.getCliente().getId(),"pedidoId",p.getId(),"utilizado",false));
         }
-        if(p.getCupomSaldo()!=null&&!p.getCupomSaldo().getUtilizado()) {
-            p.getCupomSaldo().setUtilizado(true);
-            auditoria.registrar("INVALIDAR_CREDITO","Cupom:"+p.getCupomSaldo().getId(),Map.of("utilizado",false),Map.of("clienteId",p.getCliente().getId(),"pedidoId",p.getId(),"utilizado",true));
+        if(p.getCupomSaldo()!=null) {
+            var saldo=cupons.bloquear(p.getCupomSaldo().getId()).orElseThrow();
+            var antes=saldo.situacao(); saldo.setLiberacao(CupomModel.Liberacao.INVALIDADO);
+            auditoria.registrar("INVALIDAR_CREDITO","Cupom:"+saldo.getId(),Map.of("situacao",antes),Map.of("clienteId",p.getCliente().getId(),"pedidoId",p.getId(),"situacao",saldo.situacao()));
         }
     }
     private void gerarCredito(PedidoModel p) {
         if(p.getExcedenteCupons().signum()<=0||p.getCupomSaldo()!=null) return;
         var c=new CupomModel(); c.setCliente(p.getCliente()); c.setCodigo("SALDO-"+p.getId()); c.setTipo("Troca");
-        c.setValor(p.getExcedenteCupons()); c.setValidade(LocalDate.now().plusYears(1)); cupons.saveAndFlush(c); p.setCupomSaldo(c);
+        c.setValor(p.getExcedenteCupons()); c.setValidade(LocalDate.now().plusYears(1)); c.setLiberacao(CupomModel.Liberacao.PENDENTE);
+        cupons.saveAndFlush(c); p.setCupomSaldo(c);
         auditoria.registrar("GERAR_CREDITO","Cupom:"+c.getId(),null,Map.of("clienteId",p.getCliente().getId(),"valor",c.getValor(),"pedidoId",p.getId()));
+    }
+    public void processarAgendado(UUID id) {
+        var p=bloquear(id);
+        // Bloqueia o pedido durante o processamento
+        if(p.getStatus().equals("EM PROCESSAMENTO")&&p.getPagamentoAgendadoEm()!=null&&!p.getPagamentoAgendadoEm().isAfter(Instant.now())) processar(id);
     }
     public ConsultaVendaService.Pedido processar(UUID id) {
         var p=bloquear(id);
-        if(!p.getStatus().equals("EM PROCESSAMENTO")) return consultas.consultar(id); // Retentativa idempotente.
+        if(!p.getStatus().equals("EM PROCESSAMENTO")) return consultas.consultar(id); // Retentativa idempotente
         if(p.getExpiraEm()!=null&&!p.getExpiraEm().isAfter(Instant.now())) return recusar(p,"REPROVADA");
         assegurarReserva(p);
-        // RN0037: a validade pode mudar entre a finalização e o processamento local.
+        // RN0037
         for(var aplicado:aplicados.findByPedidoId(id).stream().sorted(Comparator.comparing(a->a.getCupom().getId())).toList()) {
             var cupom=cupons.bloquear(aplicado.getCupom().getId()).orElseThrow();
-            if(!cupom.getUtilizado()||cupom.getValidade().isBefore(LocalDate.now())
+            if(!cupom.getUtilizado()||cupom.getLiberacao()!=CupomModel.Liberacao.LIBERADO||cupom.getValidade().isBefore(LocalDate.now())
                 ||(cupom.getCliente()!=null&&!cupom.getCliente().getId().equals(p.getCliente().getId()))) return recusar(p,"REPROVADA");
         }
         var lista=pagamentos.findByPedidoId(id); boolean aprovado=true;
         for(var pg:lista) {
-            // A compra usa os dados registrados nela, não uma edição posterior do perfil.
+            // Usa o cartão registrado na compra
             var c=new CartaoModel(); var cadastrado=pg.getCartao();
             c.setUltimosDigitos(pg.getCartaoFinal()!=null?pg.getCartaoFinal():cadastrado==null?null:cadastrado.getUltimosDigitos());
             c.setValidade(pg.getCartaoValidade()!=null?pg.getCartaoValidade():cadastrado==null?null:cadastrado.getValidade());
@@ -222,12 +237,17 @@ public class PedidoService {
         if(!aprovado) return recusar(p,"REPROVADA");
         var antes=consultas.consultar(id); movimentarReserva(p,true);
         lista.forEach(pg->pg.setStatus("APROVADO")); p.setStatus("APROVADA"); p.setExpiraEm(null);
-        gerarCredito(p);
+        p.setPagamentoAgendadoEm(null);
+        if(p.getCupomSaldo()!=null) {
+            var saldo=cupons.bloquear(p.getCupomSaldo().getId()).orElseThrow();
+            saldo.setLiberacao(CupomModel.Liberacao.LIBERADO);
+            auditoria.registrar("LIBERAR_CREDITO","Cupom:"+saldo.getId(),Map.of("situacao","Aguardando aprovação"),Map.of("clienteId",p.getCliente().getId(),"pedidoId",id,"situacao",saldo.situacao()));
+        }
         pedidos.flush(); pagamentos.flush(); var depois=consultas.consultar(id);
         auditoria.registrar("APROVAR_PAGAMENTO","Pedido:"+id,antes,depois); return depois;
     }
     private void assegurarReserva(PedidoModel p) {
-        // Mesmo com reserva existente, estoque vem antes dos cupons na ordem de locks.
+        // Bloqueia o estoque antes dos cupons
         for(var item:itens.findByPedidoId(p.getId()).stream().sorted(Comparator.comparing(i->i.getProduto().getId())).toList()) {
             var e=estoques.bloquear(item.getProduto().getId()).orElseThrow();
             if(p.getControlaEstoque()) continue;
@@ -239,7 +259,8 @@ public class PedidoService {
     }
     private ConsultaVendaService.Pedido recusar(PedidoModel p,String status) {
         var antes=consultas.consultar(p.getId()); movimentarReserva(p,false); devolverCupons(p);
-        p.setStatus(status); p.setExpiraEm(null); pagamentos.findByPedidoId(p.getId()).forEach(pg->pg.setStatus(status.equals("CANCELADO")?"CANCELADO":"REPROVADO"));
+        p.setStatus(status); p.setExpiraEm(null); p.setPagamentoAgendadoEm(null);
+        pagamentos.findByPedidoId(p.getId()).forEach(pg->pg.setStatus(status.equals("CANCELADO")?"CANCELADO":"REPROVADO"));
         pedidos.flush(); pagamentos.flush(); var depois=consultas.consultar(p.getId());
         auditoria.registrar(status,"Pedido:"+p.getId(),antes,depois); return depois;
     }
@@ -260,7 +281,7 @@ public class PedidoService {
             ||status.equals("ENTREGUE")&&Set.of("EM TRÂNSITO","EM TRANSPORTE").contains(atual);
         if(!permitido) throw RegraException.conflito("Transição incompatível com o status atual do pedido.");
         var antes=consultas.consultar(id);
-        if(status.equals("EM PROCESSAMENTO")) assegurarReserva(p);
+        if(status.equals("EM PROCESSAMENTO")) { assegurarReserva(p); p.setPagamentoAgendadoEm(Instant.now().plus(atrasoPagamento)); }
         p.setStatus(status); pedidos.flush(); var depois=consultas.consultar(id);
         auditoria.registrar("ALTERAR_STATUS","Pedido:"+id,antes,depois); return depois;
     }

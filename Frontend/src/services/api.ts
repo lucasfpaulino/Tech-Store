@@ -9,7 +9,7 @@ export class ApiError extends Error {
   }
 }
 const baseUrl = import.meta.env.VITE_API_URL ?? '/api'
-// Somente o ID do perfil é local. Dados cadastrais e transações vêm da API.
+// Envia o perfil local nas requisições
 async function responseApi(path: string, options: RequestInit = {}): Promise<Response> {
   let response: Response
   try {

@@ -6,23 +6,23 @@ import { clienteService, enderecoService, cartaoService, type PerfilCliente, typ
 import { produtoService } from '../services/produtoService'
 import { vendaService } from '../services/vendaService'
 import { errorMessage } from '../services/api'
-export type { OrderStatus, ExchangeStatus, CartItem, Pedido as DemoOrder, Troca as DemoExchange } from '../services/vendaService'
-import type { OrderStatus, ExchangeStatus, CheckoutInput, TrocaInput } from '../services/vendaService'
+export type { OrderStatus, ExchangeStatus, ExchangeAction, CartItem, Pedido as DemoOrder, Troca as DemoExchange } from '../services/vendaService'
+import type { OrderStatus, ExchangeAction, CheckoutInput, TrocaInput } from '../services/vendaService'
 export type ProductStatus = 'Ativo' | 'Inativo' | 'Sem estoque'
 export type DemoCustomer = PerfilCliente & { name: string; status: 'Ativo' | 'Inativo' }
 export type DemoAddress = Endereco & { customerId: string; label: string; line: string; type: string; preferred: boolean }
 export type DemoCard = Cartao & { customerId: string; brand: string; lastDigits: string; holder: string; expiry: string; preferred: boolean }
 type Notification = { id: number; message: string; tone: 'success' | 'info' | 'warning' }
 
-// Mantém os imports existentes; todos os registros agora vêm da API.
+// Tipos usados na integração com a API
 function useStoreData() {
   const queryClient = useQueryClient()
   const { pathname } = useLocation()
-  const isAdmin = pathname === '/admin' || pathname.startsWith('/admin/')
-  const [activeCustomerId, setActiveCustomerId] = useState(() => {
-    const id = sessionStorage.getItem('techstore.perfil') ?? ''
-    return id === 'ADMIN' ? '' : id
-  })
+  const [profile, setProfile] = useState(() => sessionStorage.getItem('techstore.perfil') ?? '')
+  const isAdminProfile = profile === 'ADMIN'
+  const activeCustomerId = isAdminProfile ? '' : profile
+  const isAdmin = isAdminProfile && (pathname === '/admin' || pathname.startsWith('/admin/'))
+  const analysisOnly = isAdmin && pathname === '/admin/analises'
   const [notification, setNotification] = useState<Notification | null>(null)
   useEffect(() => {
     if (!notification) return
@@ -30,12 +30,17 @@ function useStoreData() {
     return () => window.clearTimeout(timer)
   }, [notification])
   const customersQuery = useQuery({ queryKey: ['perfis'], queryFn: clienteService.perfis })
-  const productsQuery = useQuery({ queryKey: ['produtos'], queryFn: produtoService.listar, refetchInterval: 30000 })
-  // A loja consulta apenas o perfil atual; a gestão continua consultando todos.
-  // Isso reduz dados transferidos, mas não substitui autenticação (fora do escopo).
+  const productsQuery = useQuery({ queryKey: ['produtos'], queryFn: produtoService.listar, enabled: !analysisOnly, refetchInterval: 30000 })
+  // Filtra os dados pelo perfil local
   const scope = isAdmin ? 'admin' : activeCustomerId
-  const ordersQuery = useQuery({ queryKey: ['pedidos', scope], queryFn: () => vendaService.pedidos(isAdmin ? undefined : activeCustomerId), enabled: isAdmin || !!activeCustomerId })
-  const exchangesQuery = useQuery({ queryKey: ['trocas', scope], queryFn: () => vendaService.trocas(isAdmin ? undefined : activeCustomerId), enabled: isAdmin || !!activeCustomerId })
+  const ordersQuery = useQuery({ queryKey: ['pedidos', scope], queryFn: () => vendaService.pedidos(isAdmin ? undefined : activeCustomerId), enabled: (isAdmin && !analysisOnly) || !!activeCustomerId,
+    refetchInterval: query => query.state.data?.some(o => o.status === 'EM PROCESSAMENTO') ? 1000 : false })
+  const orderRevision = ordersQuery.data?.map(o => o.id + ':' + o.status).join('|')
+  useEffect(() => {
+    // Atualiza a interface após decisões do backend
+    void queryClient.invalidateQueries({ predicate: q => ['produtos', 'cupons', 'transacoes'].includes(String(q.queryKey[0])) })
+  }, [orderRevision, queryClient])
+  const exchangesQuery = useQuery({ queryKey: ['trocas', scope], queryFn: () => vendaService.trocas(isAdmin ? undefined : activeCustomerId), enabled: (isAdmin && !analysisOnly) || !!activeCustomerId })
   const addressesQuery = useQuery({ queryKey: ['enderecos', activeCustomerId], queryFn: () => enderecoService.listar(activeCustomerId), enabled: !!activeCustomerId })
   const cardsQuery = useQuery({ queryKey: ['cartoes', activeCustomerId], queryFn: () => cartaoService.listar(activeCustomerId), enabled: !!activeCustomerId })
   const couponsQuery = useQuery({ queryKey: ['cupons', activeCustomerId], queryFn: () => vendaService.cupons(activeCustomerId), enabled: !!activeCustomerId })
@@ -52,7 +57,7 @@ function useStoreData() {
   }
   const selectCustomer = (id: string) => {
     sessionStorage.setItem('techstore.perfil', id)
-    setActiveCustomerId(id === 'ADMIN' ? '' : id)
+    setProfile(id)
     setNotification(null)
   }
   const customers: DemoCustomer[] = (customersQuery.data ?? []).map(c => ({
@@ -77,7 +82,7 @@ function useStoreData() {
     void mutate(() => vendaService.quantidade(activeCustomerId, productId, quantity), 'Carrinho atualizado.').catch(() => undefined)
   }
   return {
-    activeCustomerId, customers, addresses, cards, products, cart, cartSummary: cartQuery.data,
+    activeCustomerId, isAdminProfile, customers, addresses, cards, products, cart, cartSummary: cartQuery.data,
     orders: (ordersQuery.data ?? []).map(o => ({ ...o, createdAt: o.date, date: new Date(o.date).toLocaleDateString('pt-BR') })),
     exchanges: exchangesQuery.data ?? [], coupons: couponsQuery.data ?? [],
     productStatuses: Object.fromEntries(products.map(p => [p.id, !p.ativo ? 'Inativo' : p.stock > 0 ? 'Ativo' : 'Sem estoque'])) as Record<string, ProductStatus>,
@@ -107,9 +112,8 @@ function useStoreData() {
     },
     updateOrderStatus: (id: string, status: OrderStatus) => mutate(() => vendaService.statusPedido(id, status), 'Status do pedido alterado.'),
     customerOrderStatus: (id: string, status: OrderStatus) => mutate(() => vendaService.statusCliente(activeCustomerId, id, status), 'Pedido atualizado.'),
-    processOrderPayment: (id: string) => mutate(() => vendaService.processarPagamento(id), 'Pagamento processado no ambiente local.'),
     createExchange: (data: TrocaInput) => mutate(() => vendaService.solicitarTroca(activeCustomerId, data), 'Troca solicitada com sucesso.'),
-    updateExchangeStatus: (id: string, status: ExchangeStatus, reentrada?: boolean, observacoes?: string) => mutate(() => vendaService.statusTroca(id, status, reentrada, observacoes), 'Troca atualizada.'),
+    updateExchangeStatus: (id: string, status: ExchangeAction, reentrada?: boolean, observacoes?: string) => mutate(() => vendaService.statusTroca(id, status, reentrada, observacoes), 'Troca atualizada.'),
     dispatchExchange: (id: string, carrier: string, tracking: string, date: string) => mutate(() => vendaService.despacharTroca(activeCustomerId, id, carrier, tracking, date), 'Despacho registrado.'),
   }
 }
@@ -123,4 +127,3 @@ export function useDemoStore() {
   if (!value) throw new Error('useDemoStore deve ser utilizado dentro de DemoProvider')
   return value
 }
-export const nextExchangeStatus: Partial<Record<ExchangeStatus, ExchangeStatus>> = { 'ITEM ENVIADO': 'ITEM RECEBIDO', 'ITEM RECEBIDO': 'TROCA PROCESSADA' }

@@ -19,6 +19,8 @@ describe('Fluxo 11 — aplicação de cupons no pedido', () => {
             expect(body.payments).to.have.length(0)
             expect(body.couponCodes).to.include.members([cupomA.codigo, cupomB.codigo])
             expect(body.creditCouponCode).to.match(/^SALDO-/)
+            // Libera a diferença após a aprovação
+            cy.contains('.status', 'APROVADA', { timeout: 25000 }).should('be.visible')
             cy.visit('/cupons')
             cy.contains('article', body.creditCouponCode).should('contain', 'Disponível').and('contain', '15,10')
           })

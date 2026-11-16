@@ -10,10 +10,9 @@ describe('Fluxo 13 — cliente solicita troca e informa o despacho', () => {
 
       cy.location('pathname').should('match', /^\/pedidos\/[0-9a-f-]+$/).then(path => {
         const pedidoId = path.split('/').pop()!
-        // Esta suíte de regressão posterior à compra não compõe a apresentação de criação de pedido.
-        cy.request('POST', '/api/pedidos/' + pedidoId + '/pagamento')
-        // Precondição externa: a transportadora iniciou e concluiu a entrega.
-        // A transição respeita o fluxo persistido, mas não abre nenhuma tela administrativa.
+        // Regressão do fluxo de troca
+        cy.contains('.status', 'APROVADA', { timeout: 25000 }).should('be.visible')
+        // Prepara a entrega do pedido
         cy.request('PATCH', '/api/pedidos/' + pedidoId + '/status', { status: 'EM TRÂNSITO' })
         cy.request('PATCH', '/api/pedidos/' + pedidoId + '/status', { status: 'ENTREGUE' })
         cy.visit('/trocas')
@@ -30,10 +29,10 @@ describe('Fluxo 13 — cliente solicita troca e informa o despacho', () => {
         cy.wait('@solicitarTroca').then(({ response }) => {
           expect(response?.statusCode).to.eq(201)
           const trocaId = response?.body.id as string
-          cy.get('.exchange-status').should('contain', 'TROCA SOLICITADA')
+          cy.get('.exchange-status').should('contain', 'EM TROCA')
 
-          // Precondição externa: a loja aceitou a solicitação para liberar o despacho do cliente.
-          cy.request('PATCH', '/api/trocas/' + trocaId + '/status', { status: 'TROCA ACEITA' })
+          // Prepara a autorização da troca
+          cy.request('PATCH', '/api/trocas/' + trocaId + '/status', { status: 'TROCA AUTORIZADA' })
           cy.reload()
           cy.intercept('POST', '**/api/clientes/' + cliente.id + '/trocas/' + trocaId + '/despacho').as('informarDespacho')
           cy.contains('button', 'Informar despacho do item').click()
@@ -42,7 +41,7 @@ describe('Fluxo 13 — cliente solicita troca e informa o despacho', () => {
             submit('Confirmar despacho')
           })
           cy.wait('@informarDespacho').its('response.statusCode').should('eq', 200)
-          cy.get('.exchange-status').should('contain', 'ITEM ENVIADO')
+          cy.get('.exchange-status').should('contain', 'TROCA AUTORIZADA').and('contain', 'CY-123')
           cy.request('/api/trocas?clienteId=' + cliente.id).its('body.0.status').should('eq', 'ITEM ENVIADO')
         })
       })

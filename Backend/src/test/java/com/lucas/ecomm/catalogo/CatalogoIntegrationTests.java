@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** Verifica a ordem real da API no schema isolado; os cadastros são revertidos ao final. */
+/** Testes do catálogo no schema isolado. */
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("integration") @Transactional
 @EnabledIfEnvironmentVariable(named="RUN_DB_TESTS", matches="true")
 class CatalogoIntegrationTests {
@@ -74,7 +74,7 @@ class CatalogoIntegrationTests {
         em.flush(); jdbc.update("update estoques set quantidade=0 where produto_id=?::uuid",id); em.clear();
     }
     private void venda(String produto,String status,int dias) {
-        // Histórico mínimo isolado da rotina; nunca modifica a base da aplicação normal.
+        // Histórico isolado para o teste
         var cliente=java.util.UUID.randomUUID(); var pedido=java.util.UUID.randomUUID();
         jdbc.update("""
             insert into clientes(id,nome,genero,data_nascimento,cpf,email,tipo_telefone,ddd,telefone,senha_hash)

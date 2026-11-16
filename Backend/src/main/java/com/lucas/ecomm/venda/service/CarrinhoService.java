@@ -38,7 +38,7 @@ public class CarrinhoService {
             .forEach(i->ids.add(i.getProduto().getId()));
         ids.forEach(this::bloquearEstoque);
     }
-    // A ordem global dos locks de estoque evita inversões entre carrinhos com vários produtos.
+    // Mantém a ordem dos locks de estoque
     public Resumo resumo(UUID clienteId) {
         clientes.bloquear(clienteId);
         var carrinho=carrinhos.findByClienteId(clienteId);

@@ -43,7 +43,7 @@ describe('Seleções da loja após carregar dados reais', () => {
   })
 
   it('ajusta a seleção de quantidade dos detalhes quando o estoque diminui', async () => {
-    // O componente é testado com a mesma rota e uma atualização do catálogo.
+    // Atualiza o catálogo na mesma rota
     store({ products: [product] as Store['products'] })
     const content = <MemoryRouter initialEntries={['/produtos/gpu-1']}><Routes><Route path="/produtos/:productId" element={<ProductDetailPage />} /></Routes></MemoryRouter>
     const view = render(content)

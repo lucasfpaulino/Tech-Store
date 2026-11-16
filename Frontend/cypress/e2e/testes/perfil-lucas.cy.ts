@@ -1,4 +1,5 @@
 /// <reference types="cypress" />
+import { selectProfile } from '../../support/data'
 
 describe('Perfil Lucas persistido para testes', () => {
   it('RF0025 RN0027 — prepara histórico idempotente e consulta pedidos, pagamentos, trocas, cupons e atividades', () => {
@@ -32,16 +33,17 @@ describe('Perfil Lucas persistido para testes', () => {
         cy.get('[aria-label="Histórico de atividades"] li').should('have.length.greaterThan', 10)
         cy.contains('Cupom LUCAS-TECH100').should('exist')
         cy.get('[aria-labelledby="customer-transactions-heading"]').should('contain', 'Pedido ' + delivered.numero).and('not.contain', delivered.id)
-        // Impede que a rolagem suave do site capture uma posição intermediária.
+        // Desativa o scroll suave na captura
         cy.document().then(doc => { doc.documentElement.style.scrollBehavior = 'auto' })
         cy.get('[aria-labelledby="customer-transactions-heading"]').scrollIntoView({ offset: { top: -170, left: 0 } })
         cy.screenshot('conta-transacoes', { capture: 'viewport' })
         cy.get('[aria-labelledby="customer-activity-heading"]').scrollIntoView({ offset: { top: -170, left: 0 } })
         cy.screenshot('conta-historico', { capture: 'viewport' })
         cy.document().then(doc => expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth))
-        cy.visit('/admin')
+        selectProfile('ADMIN', '/admin')
         cy.get('.brand--admin').click()
         cy.location('pathname').should('eq', '/')
+        selectProfile(lucas.id, '/')
         cy.get('nav[aria-label="Navegação principal"]').contains('a', /^Conta$/).click()
         cy.location('pathname').should('eq', '/conta')
         cy.contains('h1', 'Dados pessoais').should('be.visible')
@@ -60,8 +62,8 @@ describe('Perfil Lucas persistido para testes', () => {
         cy.contains('article', 'LUCAS-TECH100').should('contain', 'Disponível')
         cy.contains('article', 'LUCAS-BOASVINDAS-USADO').should('contain', 'Utilizado')
         cy.visit('/trocas')
-        cy.contains('TROCA SOLICITADA').should('be.visible')
-        cy.contains('TROCA PROCESSADA').should('be.visible')
+        cy.contains('EM TROCA').should('be.visible')
+        cy.contains('TROCADO').should('be.visible')
       })
     })
   })

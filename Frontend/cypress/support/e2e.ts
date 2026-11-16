@@ -3,11 +3,11 @@
 export {}
 
 declare global {
-  // Cypress usa esta extensão de namespace para tipar comandos customizados.
+  // Tipos dos comandos Cypress
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Cypress {
     interface Chainable {
-      /** Pausa de leitura para demonstração; não substitui espera por API ou assertions. */
+      /** Pausa visual da apresentação. */
       demoPause(milliseconds?: number): Chainable<undefined>
     }
   }
@@ -21,7 +21,7 @@ function pause<T>(value: T, key = 'actionDelay') {
   return Cypress.Promise.delay(duration(key)).then(() => value)
 }
 
-// Apenas ações visuais têm ritmo de apresentação. Requests/assertions continuam reais.
+// Ajusta o ritmo das ações visuais
 Cypress.Commands.add('demoPause', (milliseconds = duration('pageDelay')) => {
   return cy.then(() => Cypress.Promise.delay(milliseconds).then(() => undefined))
 })

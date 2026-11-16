@@ -1,10 +1,10 @@
-import { conferirCupomTroca, decidirTroca, despacharTroca, prepararVenda, receberTroca, reutilizarCupomTroca, solicitarTroca } from '../../support/vendas'
+import { conferirCupomTroca, autorizarTroca, despacharTroca, prepararVenda, receberTroca, reutilizarCupomTroca, solicitarTroca } from '../../support/vendas'
 
 describe('Vendas 12 — uso do crédito efetivamente gerado pela troca', () => {
-  it('[RF0045][RF0036][RF0037] recebe item, consulta o cupom e o utiliza em uma segunda compra aprovada', () => {
+  it('[RF0037][RF0045][RN0037] usa o crédito da troca em nova compra e impede reutilizar o mesmo cupom', () => {
     prepararVenda('ENTREGUE').then(({ base, pedido }) => {
       solicitarTroca(base, pedido).then(troca => {
-        decidirTroca(troca)
+        autorizarTroca(troca)
         despacharTroca(base, troca)
         receberTroca(troca)
         conferirCupomTroca(base, pedido, troca)

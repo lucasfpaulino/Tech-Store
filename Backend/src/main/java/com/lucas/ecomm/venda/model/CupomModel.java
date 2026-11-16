@@ -19,6 +19,19 @@ public class CupomModel extends BaseModel {
     private LocalDate validade;
     @Column(nullable=false)
     private boolean utilizado;
+    // Libera o crédito após a aprovação
+    public enum Liberacao { LIBERADO, PENDENTE, INVALIDADO }
+    @Enumerated(EnumType.STRING) @Column(nullable=false, length=12)
+    private Liberacao liberacao=Liberacao.LIBERADO;
+    public Liberacao getLiberacao() { return liberacao; }
+    public void setLiberacao(Liberacao valor) { liberacao=valor; }
+    public boolean podeUtilizar() { return liberacao==Liberacao.LIBERADO&&!utilizado&&!validade.isBefore(LocalDate.now()); }
+    public String situacao() {
+        if(liberacao==Liberacao.INVALIDADO) return "Invalidado";
+        if(utilizado) return "Utilizado";
+        if(validade.isBefore(LocalDate.now())) return "Expirado";
+        return liberacao==Liberacao.PENDENTE?"Aguardando aprovação":"Disponível";
+    }
     public ClienteModel getCliente() { return cliente; }
     public void setCliente(ClienteModel cliente) { this.cliente=cliente; }
     public String getCodigo() { return codigo; }

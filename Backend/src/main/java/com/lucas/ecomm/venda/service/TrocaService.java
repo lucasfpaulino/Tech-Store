@@ -31,7 +31,7 @@ public class TrocaService {
     private TrocaModel bloquear(UUID id) {
         var t=trocas.findById(id).orElseThrow(()->RegraException.inexistente("Troca não encontrada."));
         pedidos.bloquear(t.getItemPedido().getPedido().getId()).orElseThrow();
-        // O lock do pedido serializa todas as solicitações e quantidades dos seus itens.
+        // Bloqueia o pedido durante a solicitação
         em.refresh(t);
         return t;
     }
@@ -58,18 +58,24 @@ public class TrocaService {
     }
     public ConsultaVendaService.Troca alterar(UUID id,Alterar r) {
         var t=bloquear(id); var antes=resposta(id);
-        if(t.getStatus().equals(r.status())) return antes; // Repetir recebimento não cria crédito/estoque novamente.
+        if(r.status().equals("TROCA NEGADA")) throw RegraException.invalido("Recusa de troca não faz parte deste fluxo.");
+        // Mantém os estados do DRS
+        String proximo=switch(r.status()) {
+            case "TROCA AUTORIZADA" -> "TROCA ACEITA";
+            case "TROCADO" -> "ITEM RECEBIDO";
+            default -> r.status();
+        };
+        if(t.getStatus().equals(proximo)) return antes; // Evita duplicar crédito e estoque
         var permitidos=switch(t.getStatus()) {
-            case "TROCA SOLICITADA" -> Set.of("TROCA ACEITA","TROCA NEGADA");
-            case "ITEM ENVIADO" -> Set.of("ITEM RECEBIDO");
-            case "ITEM RECEBIDO" -> Set.of("TROCA PROCESSADA");
+            case "TROCA SOLICITADA" -> Set.of("TROCA ACEITA");
+            case "TROCA ACEITA","ITEM ENVIADO" -> Set.of("ITEM RECEBIDO");
             default -> Set.<String>of();
         };
-        if(!permitidos.contains(r.status())) throw RegraException.conflito("Transição de troca inválida.");
-        if(r.status().equals("ITEM RECEBIDO")&&r.reentradaEstoque()==null) throw RegraException.invalido("Informe se o item deve retornar ao estoque.");
-        t.setStatus(r.status()); t.setObservacoes(r.observacoes());
-        t.setStatusDrs(switch(r.status()) { case "TROCA ACEITA" -> "TROCA AUTORIZADA"; case "TROCA NEGADA" -> "TROCA NEGADA"; default -> "TROCADO"; });
-        if(r.status().equals("ITEM RECEBIDO")) {
+        if(!permitidos.contains(proximo)) throw RegraException.conflito("Transição de troca inválida.");
+        if(proximo.equals("ITEM RECEBIDO")&&r.reentradaEstoque()==null) throw RegraException.invalido("Informe se o item deve retornar ao estoque.");
+        t.setStatus(proximo); t.setObservacoes(r.observacoes());
+        t.setStatusDrs(proximo.equals("TROCA ACEITA")?"TROCA AUTORIZADA":"TROCADO");
+        if(proximo.equals("ITEM RECEBIDO")) {
             var i=t.getItemPedido();
             if(Boolean.TRUE.equals(r.reentradaEstoque())) {
                 var e=estoques.bloquear(i.getProduto().getId()).orElseThrow(()->RegraException.conflito("Produto sem estoque."));
@@ -85,7 +91,7 @@ public class TrocaService {
         }
         trocas.flush(); atualizarPedido(t.getItemPedido().getPedido());
         var n=new NotificacaoClienteModel(); n.setCliente(t.getItemPedido().getPedido().getCliente()); n.setTroca(t);
-        n.setMensagem("Troca de "+t.getItemPedido().getNomeProduto()+": "+t.getStatus()+"."+(t.getCupom()==null?"":" Cupom disponível: "+t.getCupom().getCodigo()));
+        n.setMensagem("Troca de "+t.getItemPedido().getNomeProduto()+": "+t.getStatusDrs()+"."+(t.getCupom()==null?"":" Cupom disponível: "+t.getCupom().getCodigo()));
         notificacoes.saveAndFlush(n); auditoria.registrar("NOTIFICAR_CLIENTE","Notificacao:"+n.getId(),null,Map.of("clienteId",n.getCliente().getId(),"mensagem",n.getMensagem()));
         var depois=resposta(id); auditoria.registrar("ALTERAR_TROCA","Troca:"+id,antes,depois); return depois;
     }

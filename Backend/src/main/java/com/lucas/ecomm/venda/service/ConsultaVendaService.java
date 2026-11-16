@@ -25,7 +25,7 @@ public class ConsultaVendaService {
     }
     public record Item(UUID productId,int quantity,String name,BigDecimal unitPrice) {}
     public record PagamentoPedido(UUID cardId,BigDecimal amount,String status,String brand,String lastDigits) {}
-    public record Pedido(UUID id,UUID customerId,Instant date,BigDecimal total,String status,List<Item> items,String productSummary,UUID addressId,String addressSnapshot,List<String> couponCodes,List<PagamentoPedido> payments,BigDecimal subtotal,BigDecimal frete,BigDecimal desconto,String creditCouponCode,BigDecimal creditValue,Instant expiresAt,Long numero) {}
+    public record Pedido(UUID id,UUID customerId,Instant date,BigDecimal total,String status,List<Item> items,String productSummary,UUID addressId,String addressSnapshot,List<String> couponCodes,List<PagamentoPedido> payments,BigDecimal subtotal,BigDecimal frete,BigDecimal desconto,String creditCouponCode,BigDecimal creditValue,Instant expiresAt,Long numero,String creditStatus) {}
     public record Troca(UUID id,UUID orderId,UUID customerId,UUID productId,String productName,int quantity,String reason,String status,String carrier,String trackingCode,String statusDrs,boolean reentradaEstoque,String couponCode,LocalDate dispatchDate,String observacoes,Long orderNumber) {}
     public record Notificacao(UUID id,Instant data,String mensagem) {}
     public record Pagamento(UUID id,UUID pedidoId,BigDecimal valor,String status,String cartaoFinal,Long pedidoNumero) {}
@@ -43,7 +43,7 @@ public class ConsultaVendaService {
                 pg.getCartao()==null?null:pg.getCartao().getId(),pg.getValor(),pg.getStatus(),
                 pg.getBandeira()!=null?pg.getBandeira():pg.getCartao()==null?null:pg.getCartao().getBandeira().getNome(),
                 pg.getCartaoFinal()!=null?pg.getCartaoFinal():pg.getCartao()==null?null:pg.getCartao().getUltimosDigitos())).toList(),
-            p.getSubtotal(),p.getFrete(),p.getDesconto(),p.getCupomSaldo()==null?null:p.getCupomSaldo().getCodigo(),p.getExcedenteCupons(),p.getExpiraEm(),p.getNumero());
+            p.getSubtotal(),p.getFrete(),p.getDesconto(),p.getCupomSaldo()==null?null:p.getCupomSaldo().getCodigo(),p.getExcedenteCupons(),p.getExpiraEm(),p.getNumero(),p.getCupomSaldo()==null?null:p.getCupomSaldo().situacao());
     }
     private Troca troca(TrocaModel t) {
         var i=t.getItemPedido(); var p=i.getPedido();
@@ -55,7 +55,7 @@ public class ConsultaVendaService {
         var lista=clienteId==null?pedidos.findAllByOrderByCriadoEmDesc():pedidos.findByClienteIdOrderByCriadoEmDesc(clienteId);
         if(lista.isEmpty()) return List.of();
         var ids=lista.stream().map(PedidoModel::getId).toList();
-        // Busca em lote: o número de SELECTs não cresce a cada pedido da listagem.
+        // Carrega os dados dos pedidos em lote
         var produtos=itens.findByPedidoIdIn(ids).stream().collect(java.util.stream.Collectors.groupingBy(i->i.getPedido().getId()));
         var vouchers=cuponsAplicados.findByPedidoIdIn(ids).stream().collect(java.util.stream.Collectors.groupingBy(a->a.getPedido().getId()));
         var valores=pagamentos.findByPedidoIdIn(ids).stream().collect(java.util.stream.Collectors.groupingBy(pg->pg.getPedido().getId()));
@@ -72,7 +72,7 @@ public class ConsultaVendaService {
         clientes.exigir(clienteId);
         return cupons.findByClienteIdOrClienteIsNull(clienteId).stream().map(c->new Cupom(c.getId(),c.getCodigo(),
             "Cupom "+(c.getTipo().equals("Troca")?"de troca":"promocional"),c.getValor(),c.getValidade(),
-            c.getUtilizado()?"Utilizado":c.getValidade().isBefore(LocalDate.now())?"Expirado":"Disponível")).toList();
+            c.situacao())).toList();
     }
     public Map<String,Object> transacoes(UUID clienteId) {
         clientes.exigir(clienteId);

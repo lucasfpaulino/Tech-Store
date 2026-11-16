@@ -10,7 +10,7 @@ describe('Pedido — carrinho RF0031/RF0032/RN0031', () => {
       cy.get('.cart-line').should('have.length', 1)
       cy.reload()
       cy.contains('.cart-line', base.produtos[0].nome).find('select').should('have.value', '3')
-      // A lista da UI só oferece quantidades disponíveis; o servidor também rejeita excedentes.
+      // Valida o limite de estoque
       cy.contains('.cart-line', base.produtos[0].nome).find('option').last().should('have.value', String(base.produtos[0].quantidade))
       cy.request({ method: 'POST', url: `/api/clientes/${base.cliente.id}/carrinho/itens/${base.produtos[0].id}`, body: { quantidade: 1000 }, failOnStatusCode: false }).its('status').should('eq', 409)
       cy.contains('.cart-line', base.produtos[0].nome).find('select').should('have.value', '3')

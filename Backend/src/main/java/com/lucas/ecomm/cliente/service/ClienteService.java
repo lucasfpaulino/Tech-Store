@@ -60,7 +60,7 @@ public class ClienteService {
             query.orderBy(cb.asc(root.get("nome")));
             return cb.and(condicoes.toArray(Predicate[]::new));
         });
-        // Um agregado para toda a lista, sem uma consulta por cliente.
+        // Consulta os rankings em lote
         Map<UUID,Long> rankings=new HashMap<>();
         for(Object row:em.createNativeQuery("select cliente_id,count(*) from pedidos where status in ('APROVADA','PAGAMENTO REALIZADO','EM TRÂNSITO','EM TRANSPORTE','ENTREGUE') group by cliente_id").getResultList()) {
             Object[] r=(Object[])row; rankings.put((UUID)r[0],((Number)r[1]).longValue());

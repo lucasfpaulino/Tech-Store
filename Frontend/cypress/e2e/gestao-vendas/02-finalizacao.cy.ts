@@ -1,7 +1,7 @@
 import { prepararPedido, iniciarCarrinho, abrirFinalizacao, finalizarPedido, novosDados, conferirPerfil, conferirFrete } from '../../support/pedido'
 
 describe('Vendas 02 — endereço, cartão, frete e finalização', () => {
-  it('[RF0033][RF0034][RF0035][RF0036][RF0038] finaliza com endereço e cartão cadastrados, sem aprovar pagamento antecipadamente', () => {
+  it('[RF0033][RF0034][RF0035][RF0036][RF0038] usa endereço e cartão cadastrados, calcula frete e registra EM PROCESSAMENTO', () => {
     prepararPedido().then(base => {
       iniciarCarrinho(base)
       abrirFinalizacao()
@@ -16,7 +16,7 @@ describe('Vendas 02 — endereço, cartão, frete e finalização', () => {
   })
 
   for (const incorporar of [true, false]) {
-    it(`[RF0035][RF0036][RF0038][RN0023][RN0024][RN0025] usa novo endereço e cartão ${incorporar ? 'incorporados ao perfil' : 'somente nesta compra'}`, () => {
+    it(`[RF0035][RF0036][RN0023][RN0024][RN0025] cadastra endereço e cartão ${incorporar ? 'incorporando-os ao perfil' : 'somente para esta compra'}`, () => {
       prepararPedido().then(base => {
         iniciarCarrinho(base)
         abrirFinalizacao()

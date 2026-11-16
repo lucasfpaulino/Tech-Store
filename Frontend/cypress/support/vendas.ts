@@ -7,8 +7,7 @@ import { localDate } from '../../src/utils/localDate'
 export type VendaPreparada = { base: BasePedido; pedido: Pedido }
 export const reais = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 
-// Somente pré-condições dos testes isolados. O fluxo 00 não usa este atalho:
-// nele carrinho, compra, pagamento, entrega e troca são executados pelas telas.
+// Prepara os testes isolados
 export function prepararVenda(status: 'EM PROCESSAMENTO' | 'APROVADA' | 'EM TRANSPORTE' | 'ENTREGUE' = 'EM PROCESSAMENTO', recusado = false, varios = false): Cypress.Chainable<VendaPreparada> {
   return prepararPedido().then(base => {
     const cartao: Cypress.Chainable<BasePedido['cartoes'][number]> = recusado ? apiCard(base.cliente.id, '4000000000000002') : cy.wrap(base.cartoes[0])
@@ -24,7 +23,7 @@ export function prepararVenda(status: 'EM PROCESSAMENTO' | 'APROVADA' | 'EM TRAN
           }).then(({ body: pedido }) => {
             expect(pedido.status, 'pré-condição persistida').to.eq('EM PROCESSAMENTO')
             if (status !== 'EM PROCESSAMENTO') {
-              cy.request('POST', `/api/pedidos/${pedido.id}/pagamento`).its('body.status').should('eq', 'APROVADA')
+              aguardarPagamentoNaApi(pedido)
               if (status === 'EM TRANSPORTE' || status === 'ENTREGUE') {
                 cy.request('PATCH', `/api/pedidos/${pedido.id}/status`, { status: 'EM TRANSPORTE' })
               }
@@ -38,21 +37,30 @@ export function prepararVenda(status: 'EM PROCESSAMENTO' | 'APROVADA' | 'EM TRAN
   })
 }
 
-export function processarPagamento(pedido: Pedido, esperado: 'APROVADA' | 'REPROVADA' = 'APROVADA'): Cypress.Chainable<Pedido> {
-  cy.log('[RN0037][RN0038][RN0028][RF0053] Processa pagamento no simulador local')
+export function aguardarPagamento(pedido: Pedido, esperado: 'APROVADA' | 'REPROVADA' = 'APROVADA'): Cypress.Chainable<Pedido> {
+  cy.log('[RN0037][RN0038][RN0028][RF0053] Aguarda a decisão automática do backend, sem clique ou POST de pagamento')
   cy.location('pathname').should('eq', '/pedidos/' + pedido.id)
-  cy.intercept('POST', `**/api/pedidos/${pedido.id}/pagamento`).as('vendaPagamento')
-  cy.contains('button', 'Processar pagamento').should('not.be.disabled').click()
-  return cy.wait('@vendaPagamento').then(({ response }) => {
-    expect(response?.statusCode).to.eq(200)
-    const atualizado = response!.body as Pedido
+  const alias = 'semGatilhoManual' + Cypress._.uniqueId()
+  cy.intercept('POST', `**/api/pedidos/${pedido.id}/pagamento`).as(alias)
+  cy.contains('button', 'Processar pagamento').should('not.exist')
+  cy.contains('.status', esperado, { timeout: 25000 }).should('be.visible')
+  return cy.request<Pedido>(`/api/pedidos/${pedido.id}`).then(({ body: atualizado }) => {
     expect(atualizado.status).to.eq(esperado)
     expect(atualizado.payments?.every(p => p.status === (esperado === 'APROVADA' ? 'APROVADO' : 'REPROVADO'))).to.eq(true)
-    cy.contains('.status', esperado).should('be.visible')
-    cy.contains('button', 'Processar pagamento').should('not.exist')
+    cy.get('@' + alias + '.all').should('have.length', 0)
     cy.reload()
     cy.contains('.status', esperado).should('be.visible')
     return cy.then(() => atualizado)
+  })
+}
+
+// Prepara o pedido para o teste
+export function aguardarPagamentoNaApi(pedido: Pedido, esperado = 'APROVADA', tentativas = 100): Cypress.Chainable<Pedido> {
+  return cy.request<Pedido>(`/api/pedidos/${pedido.id}`).then(({ body }) => {
+    if (body.status === 'EM PROCESSAMENTO' && tentativas > 0)
+      return cy.wait(250, { log: false }).then(() => aguardarPagamentoNaApi(pedido, esperado, tentativas - 1))
+    expect(body.status, 'decisão automática persistida').to.eq(esperado)
+    return cy.then(() => body)
   })
 }
 
@@ -97,8 +105,7 @@ export function solicitarTroca(base: BasePedido, pedido: Pedido, produtoId = ped
   cy.get('.exchange-form').within(() => {
     cy.contains('label', 'Pedido').find('select').should('have.value', pedido.id)
     cy.contains('label', 'Item').find('select').select(produtoId)
-    // O campo mantém mínimo 1 durante a edição. clear()+type() concatenava o
-    // valor reconstituído pelo React (1 + 1 = 11, limitado ao saldo do item).
+    // Substitui a quantidade sem concatenar dígitos
     cy.contains('label', 'Quantidade').find('input').type('{selectall}' + quantidade).should('have.value', String(quantidade))
     cy.contains('label', 'Motivo').find('select').select('Produto com defeito')
     cy.get('textarea').type('O componente apresentou falha ao ser instalado.')
@@ -110,7 +117,7 @@ export function solicitarTroca(base: BasePedido, pedido: Pedido, produtoId = ped
     expect(troca.status).to.eq('TROCA SOLICITADA')
     expect(troca.statusDrs, 'RN0041 estado do DRS').to.eq('EM TROCA')
     expect(troca.quantity).to.eq(quantidade)
-    cy.contains('.exchange-status > div', troca.id).should('contain', 'TROCA SOLICITADA')
+    cy.contains('.exchange-status > div', troca.id).should('contain', 'EM TROCA')
     return cy.then(() => troca)
   })
 }
@@ -125,22 +132,21 @@ function transicaoTrocaAdmin(troca: Troca, acao: string, values: Record<string, 
     const atualizado = response!.body as Troca
     expect(atualizado.status).to.eq(esperado)
     cy.get('form.mock-editor').should('not.exist')
-    cy.contains('tbody tr', troca.id).should('contain', esperado)
+    cy.contains('tbody tr', troca.id).should('contain', atualizado.statusDrs)
     return cy.then(() => atualizado)
   })
 }
 
-export function decidirTroca(troca: Troca, aceitar = true) {
-  cy.log('[RF0042][RF0043][RN0046] Admin consulta e decide a solicitação')
-  const status = aceitar ? 'TROCA ACEITA' : 'TROCA NEGADA'
-  return transicaoTrocaAdmin(troca, 'Aceitar ou negar', { nextStatus: status, notes: aceitar ? 'Troca autorizada após análise.' : 'Solicitação não autorizada após análise.' }, status)
+export function autorizarTroca(troca: Troca) {
+  cy.log('[RF0042][RF0043][RN0046] Admin consulta e autoriza a solicitação')
+  return transicaoTrocaAdmin(troca, 'Autorizar troca', { nextStatus: 'TROCA AUTORIZADA', notes: 'Troca autorizada após análise.' }, 'TROCA ACEITA')
     .then(atualizado => {
-      expect(atualizado.statusDrs).to.eq(aceitar ? 'TROCA AUTORIZADA' : 'TROCA NEGADA')
+      expect(atualizado.statusDrs).to.eq('TROCA AUTORIZADA')
       return atualizado
     })
 }
 
-export function conferirNotificacao(base: BasePedido, status = 'TROCA ACEITA') {
+export function conferirNotificacao(base: BasePedido, status = 'TROCA AUTORIZADA') {
   selectProfile(base.cliente.id, '/conta')
   cy.contains('[role="alert"]', status).should('be.visible')
   cy.reload()
@@ -163,7 +169,7 @@ export function despacharTroca(base: BasePedido, troca: Troca): Cypress.Chainabl
     expect(atualizado.status).to.eq('ITEM ENVIADO')
     expect(atualizado.trackingCode).to.eq(trackingCode)
     cy.get('form.mock-editor').should('not.exist')
-    cy.contains('.exchange-status > div', troca.id).should('contain', 'ITEM ENVIADO').and('contain', trackingCode)
+    cy.contains('.exchange-status > div', troca.id).should('contain', 'TROCA AUTORIZADA').and('contain', trackingCode)
     return cy.then(() => atualizado)
   })
 }
@@ -180,7 +186,11 @@ export function receberTroca(troca: Troca, reentrada = true) {
 }
 
 export function encerrarTroca(troca: Troca) {
-  return transicaoTrocaAdmin(troca, 'Processar troca', {}, 'TROCA PROCESSADA')
+  // O recebimento conclui a troca
+  cy.contains('tbody tr', troca.id).should('contain', 'TROCADO').and('contain', 'Fluxo concluído')
+  return cy.request<Troca[]>('/api/trocas').then(({ body }) => {
+    expect(body.find(t => t.id === troca.id)?.statusDrs).to.eq('TROCADO')
+  })
 }
 
 export function conferirCupomTroca(base: BasePedido, pedido: Pedido, troca: Troca) {
@@ -199,7 +209,7 @@ export function conferirCupomTroca(base: BasePedido, pedido: Pedido, troca: Troc
 export function reutilizarCupomTroca(base: BasePedido, troca: Troca) {
   cy.log('[RF0036][RF0037][RF0045] Usa o cupom gerado no recebimento em uma nova compra')
   const novaBase: BasePedido = { ...base, produtos: [] }
-  // Saldo atual: pode ter ocorrido uma troca parcial. Não reutiliza a expectativa antiga.
+  // Consulta o saldo após a troca
   for (const produto of base.produtos) {
     cy.request('/api/produtos/' + produto.id).then(({ body }) => { novaBase.produtos.push(body) })
   }
@@ -211,7 +221,7 @@ export function reutilizarCupomTroca(base: BasePedido, troca: Troca) {
     finalizarPedido(novaBase).then(novoPedido => {
       expect(novoPedido.id).not.to.eq(troca.orderId)
       expect(novoPedido.couponCodes).to.include('TROCA-' + troca.id)
-      processarPagamento(novoPedido)
+      aguardarPagamento(novoPedido)
       conferirEstoque(novaBase, novoPedido, true)
       selectProfile(base.cliente.id, '/cupons')
       cy.contains('article', 'TROCA-' + troca.id).should('contain', 'Utilizado')

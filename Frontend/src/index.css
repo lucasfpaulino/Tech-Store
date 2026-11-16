@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Libre+Franklin:wght@600;700&display=swap');
 
 :root {
-  /* Ajuste único e reversível, sem alterar a escala dos espaçamentos do layout. */
+  /* Ajuste global das fontes */
   --font-size-increase: 2px;
   font-family: 'DM Sans', 'Segoe UI', sans-serif;
   color: #172033;

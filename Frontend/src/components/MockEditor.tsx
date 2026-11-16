@@ -29,7 +29,7 @@ export function MockEditor({ title, description, fields, submitLabel = 'Salvar a
     try {
       if (!onSave) throw new Error('Esta operação ainda não foi integrada.')
       await onSave(values)
-      // Não manter senhas, PAN e CVV na tela após salvar.
+      // Limpa os dados sensíveis após salvar
       setValues(current => Object.fromEntries(Object.entries(current).map(([key, value]) => [key, /senha|numeroCartao|codigoSeguranca/i.test(key) ? '' : value])))
       setSaved(true)
     } catch (cause) { setError(errorMessage(cause)) }

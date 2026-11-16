@@ -29,7 +29,7 @@ public class InativacaoProdutoService {
 
     @Transactional
     public boolean inativar(UUID id) {
-        // O mesmo lock da entrada/carrinho evita inativar um produto que acabou de ser reposto.
+        // Confere o estoque com lock
         var saldo=estoques.bloquear(id).orElse(null);
         if(saldo==null||saldo.getQuantidade()!=0) return false;
         var produto=saldo.getProduto();

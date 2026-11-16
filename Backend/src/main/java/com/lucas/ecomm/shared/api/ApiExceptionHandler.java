@@ -39,7 +39,7 @@ public class ApiExceptionHandler {
     ResponseEntity<Erro> concorrencia(Exception e) { return resposta(HttpStatus.CONFLICT,"O registro foi alterado por outra operação. Atualize a página.",Map.of()); }
     @ExceptionHandler(Exception.class)
     ResponseEntity<Erro> inesperado(Exception e) {
-        // Não devolver SQL, stack traces, payloads ou credenciais ao navegador.
+        // Oculta os detalhes internos do erro
         org.slf4j.LoggerFactory.getLogger(getClass()).error("Falha interna: {}", e.getClass().getSimpleName());
         return resposta(HttpStatus.INTERNAL_SERVER_ERROR,"Não foi possível concluir a operação. Tente novamente.",Map.of());
     }

@@ -17,6 +17,15 @@ function renderApp(path = '/') {
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>)
 }
 describe('Tech Store conectada à API', () => {
+  it.each(['', 'cliente-1'])('nega o gráfico ao perfil não administrativo %s, inclusive por URL direta', async profile => {
+    sessionStorage.setItem('techstore.perfil', profile)
+    renderApp('/admin/analises')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Acesso restrito ao perfil administrador.')
+    expect(screen.queryByRole('img', { name: /Gráfico de linhas/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Selecionar perfil' })).toHaveAttribute('href', '/perfis')
+    expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining('/analises/vendas'), expect.anything())
+    expect(fetch).not.toHaveBeenCalledWith('/api/pedidos', expect.anything())
+  })
   it('mantém navegação e carrinho vazio quando não há registros', async () => {
     renderApp()
     expect(await screen.findByRole('heading', { name: /componentes para montar/i })).toBeInTheDocument()
@@ -32,6 +41,7 @@ describe('Tech Store conectada à API', () => {
     expect(screen.getByRole('heading', { name: 'Escolha um perfil' })).toBeInTheDocument()
   })
   it('retorna à loja pelo logo da barra lateral administrativa', async () => {
+    sessionStorage.setItem('techstore.perfil', 'ADMIN')
     renderApp('/admin/pedidos')
     await userEvent.click(screen.getByRole('link', { name: 'Tech Store — início' }))
     expect(await screen.findByRole('heading', { name: /componentes para montar/i })).toBeInTheDocument()
@@ -79,6 +89,7 @@ describe('Tech Store conectada à API', () => {
     expect(fetch).not.toHaveBeenCalledWith('/api/pedidos', expect.anything())
   })
   it('abre o pedido do histórico administrativo sem exigir perfil de cliente', async () => {
+    sessionStorage.setItem('techstore.perfil', 'ADMIN')
     const pedido = { id: 'pedido-1', numero: 111082, customerId: 'cliente-1', date: '2026-10-17T12:00:00Z',
       total: 114.9, subtotal: 100, frete: 14.9, desconto: 0, status: 'ENTREGUE', items: [], payments: [], couponCodes: [], addressSnapshot: 'Arujá/SP' }
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

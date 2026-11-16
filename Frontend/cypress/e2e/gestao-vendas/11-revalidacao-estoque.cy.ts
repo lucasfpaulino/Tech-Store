@@ -2,13 +2,13 @@ import { abrirFinalizacao, iniciarCarrinho, prepararPedido } from '../../support
 import type { Quote } from '../../../src/services/vendaService'
 
 describe('Vendas 11 — revalidação de estoque entre carrinho e compra', () => {
-  it('[RN0032] após reconciliação externa reduz a quantidade, recalcula e mostra o aviso antes de finalizar', () => {
+  it('[RN0032] reduz quantidade após mudança externa do estoque, recalcula e avisa antes de finalizar', () => {
     prepararPedido().then(base => {
       iniciarCarrinho(base, true)
-      // Emula condição externa no schema de testes, sem substituir a resposta da API.
+      // Simula uma mudança externa no estoque
       cy.task('condicionarVenda', { clienteId: base.cliente.id, operacao: 'estoque', valor: 1, referenciaId: base.produtos[0].id })
         .its('aplicado').should('eq', true)
-      // Não consulta o resumo antes da tela: ela deve ser a primeira a receber o aviso.
+      // Aguarda o aviso na tela
       abrirFinalizacao()
       cy.contains('[role="alert"]', 'A quantidade de ' + base.produtos[0].nome).should('contain', 'foi ajustada para 1')
       cy.contains('[data-testid="checkout-item"]', base.produtos[0].nome).should('contain', '1 ×')
@@ -25,7 +25,7 @@ describe('Vendas 11 — revalidação de estoque entre carrinho e compra', () =>
     })
   })
 
-  it('[RN0032] remove item que ficou indisponível, exibe alerta e impede finalizar o carrinho vazio', () => {
+  it('[RN0032] remove produto que ficou indisponível, alerta o cliente e bloqueia finalizar carrinho vazio', () => {
     prepararPedido().then(base => {
       iniciarCarrinho(base)
       cy.task('condicionarVenda', { clienteId: base.cliente.id, operacao: 'estoque', valor: 0, referenciaId: base.produtos[0].id })

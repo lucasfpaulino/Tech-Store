@@ -27,7 +27,7 @@ public class ProdutoService {
         return new ProdutoResponse(p.getId(),p.getNome(),p.getMarca(),p.getDescricao(),p.getImagem(),p.getPreco(),p.getCusto(),p.getAtivo(),
             p.getGrupoPrecificacao().getId(),p.getCategorias().stream().map(c->new ProdutoResponse.Dominio(c.getId(),c.getNome())).toList(),e.getQuantidade(),e.getReservado(),p.getJustificativaStatus(),p.getCategoriaStatus());
     }
-    // Ordem determinística: os novos cadastros aparecem no início do catálogo.
+
     public List<ProdutoResponse> listar() {
         var lista=produtos.findAllByOrderByCriadoEmDescIdAsc();
         if(lista.isEmpty()) return List.of();
@@ -51,7 +51,7 @@ public class ProdutoService {
         if(r.preco().compareTo(r.custo().multiply(BigDecimal.ONE.add(grupo.getMargemMinima().movePointLeft(2))))<0)
             throw RegraException.invalido("Preço abaixo da margem mínima do grupo de precificação.");
         var p=id==null?new ProdutoModel():exigir(id);
-        // Compartilha o lock com carrinho/pedido antes de consultar ou alterar as quantidades.
+        // Usa o mesmo lock do carrinho e do pedido
         var e=id==null?new EstoqueModel():estoques.bloquear(id).orElseThrow();
         var antes=id==null?null:resposta(p);
         var maior=id==null?null:entradas.maiorCusto(id);

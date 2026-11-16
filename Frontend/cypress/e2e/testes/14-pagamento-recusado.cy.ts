@@ -13,8 +13,7 @@ describe('Fluxo 14 — pagamento simulado recusado', () => {
         cy.location('pathname').should('match', /^\/pedidos\/[0-9a-f-]+$/).then(path => {
           const pedidoId = path.split('/').pop()!
           cy.contains('.status', 'EM PROCESSAMENTO').should('be.visible')
-          cy.contains('button', 'Processar pagamento').click()
-          cy.contains('.status', 'REPROVADA').should('be.visible')
+          cy.contains('.status', 'REPROVADA', { timeout: 25000 }).should('be.visible')
           cy.contains('Pagamento reprovado.').should('be.visible')
           cy.request('/api/produtos/' + produto.id).then(({ body }) => {
             expect(body.quantidade).to.eq(10)

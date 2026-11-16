@@ -78,7 +78,9 @@ export function mostrarProdutoNoCatalogo(produto: { id: string; nome: string }) 
   cy.location('pathname').should('eq', '/')
   cy.location('search').should('eq', '')
   cy.contains('h2', 'Produtos disponíveis').should('be.visible')
-  // Prioriza a primeira fileira, mas permite um produto logo abaixo quando necessário.
+  // Desativa o scroll suave durante o teste
+  cy.document().then(doc => { doc.documentElement.style.scrollBehavior = 'auto' })
+  // Prioriza os primeiros produtos
   cy.get('.book-grid .book-card').then(cards => {
     const todos = cards.toArray()
     const primeiraFileira = todos.filter(element => element.offsetTop === cards[0].offsetTop)
@@ -87,6 +89,11 @@ export function mostrarProdutoNoCatalogo(produto: { id: string; nome: string }) 
     expect(card, 'produto preparado presente no catálogo').not.to.eq(undefined)
     const ancora = primeiraFileira.includes(card!) ? cards[0] : card!
     cy.wrap(ancora).scrollIntoView({ duration: 250, offset: { top: -130, left: 0 } })
+    cy.wrap(ancora).should(() => {
+      const bounds = ancora.getBoundingClientRect()
+      expect(bounds.top, 'fileira posicionada dentro da tela').to.be.at.least(0)
+      expect(bounds.bottom, 'scroll concluído antes da próxima ação').to.be.at.most(Cypress.config('viewportHeight'))
+    })
   })
   cy.get('[data-product-id="' + produto.id + '"]').should('be.visible').and('contain', produto.nome)
   cy.demoPause()
@@ -114,7 +121,7 @@ export function comprarPeloCatalogo(clienteId: string, produto: { id: string; no
 }
 
 export function apiProduct(preco = 150, modelo: keyof typeof modelosDeProduto = 'rtx5070') {
-  // Registro próprio por cenário. O ID distingue cadastros com o mesmo nome comercial.
+  // Cria um registro por cenário
   return cy.request('/api/dominios/catalogo').then(r => cy.request<Produto>('POST', '/api/produtos', {
     ...modelosDeProduto[modelo], preco, custo: 50, ativo: true, quantidade: 10,
     grupoPrecificacaoId: r.body.grupos.find((g: { nome: string }) => g.nome === 'Padrão').id,

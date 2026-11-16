@@ -13,4 +13,6 @@ public interface PedidoRepository extends JpaRepository<PedidoModel,UUID> {
     Optional<PedidoModel> bloquear(@org.springframework.data.repository.query.Param("id") UUID id);
     @org.springframework.data.jpa.repository.Query("select p.id from PedidoModel p where p.status='EM PROCESSAMENTO' and p.expiraEm < :agora")
     List<UUID> expirados(@org.springframework.data.repository.query.Param("agora") java.time.Instant agora);
+    @org.springframework.data.jpa.repository.Query("select p.id from PedidoModel p where p.status='EM PROCESSAMENTO' and p.pagamentoAgendadoEm<=:agora order by p.pagamentoAgendadoEm,p.id")
+    List<UUID> pagamentosPendentes(@org.springframework.data.repository.query.Param("agora") java.time.Instant agora, org.springframework.data.domain.Pageable pagina);
 }

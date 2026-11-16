@@ -1,14 +1,18 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Alert } from '@mui/material'
+import { Alert, LinearProgress } from '@mui/material'
 import { produtoService, type Produto } from '../services/produtoService'
 import { errorMessage } from '../services/api'
 import { Link } from 'react-router-dom'
 import { MockEditor, type EditorField } from '../components/MockEditor'
-import { SalesChart } from '../components/SalesChart'
 import { StockEntries } from '../components/StockEntries'
-import { nextExchangeStatus, useDemoStore, type DemoCustomer, type DemoExchange, type DemoOrder, type ExchangeStatus, type OrderStatus } from '../context/DemoContext'
+import { useDemoStore, type DemoCustomer, type DemoExchange, type DemoOrder, type ExchangeAction, type OrderStatus } from '../context/DemoContext'
 import { adminTables } from '../data/catalogMetadata'
+
+const LazySalesChart = lazy(() => import('../components/SalesChart').then(module => ({ default: module.SalesChart })))
+function SalesChart() {
+  return <Suspense fallback={<LinearProgress aria-label="Carregando análise de vendas" />}><LazySalesChart /></Suspense>
+}
 
 type AdminModule = keyof typeof adminTables
 type AdminRow = { id: string; cells: readonly string[] }
@@ -19,7 +23,7 @@ function orderRow(order: DemoOrder, customers: DemoCustomer[]): AdminRow {
 }
 
 function statusClass(status: string) {
-  if (['Ativo', 'Regular', 'ENTREGUE', 'APROVADA', 'PAGAMENTO REALIZADO', 'TROCA PROCESSADA'].includes(status)) return 'status--success'
+  if (['Ativo', 'Regular', 'ENTREGUE', 'APROVADA', 'PAGAMENTO REALIZADO', 'TROCADO'].includes(status)) return 'status--success'
   if (['Inativo', 'Sem estoque', 'CANCELADO', 'REPROVADA', 'TROCA NEGADA', 'Estoque baixo'].includes(status)) return 'status--warning'
   return 'status--info'
 }
@@ -27,7 +31,7 @@ function statusClass(status: string) {
 export function AdminDashboardPage() {
   const { orders, exchanges, products, customers } = useDemoStore()
   const approvedTotal = orders.filter((order) => ['APROVADA', 'PAGAMENTO REALIZADO', 'EM TRANSPORTE', 'EM TRÂNSITO', 'ENTREGUE'].includes(order.status)).reduce((sum, order) => sum + order.total - order.desconto, 0)
-  return <><div className="admin-page-heading"><div><span className="eyebrow">VISÃO GERAL</span><h1>Painel administrativo</h1><p>Gestão da operação e do catálogo da Tech Store.</p></div><div className="date-filter">Período: <strong>Todos os registros</strong>⌄</div></div><section className="kpi-grid"><article><span className="kpi-icon kpi-icon--blue">↗</span><small>Receita aprovada</small><strong>{approvedTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong><em>Pedidos pagos, em trânsito e entregues</em></article><article><span className="kpi-icon kpi-icon--green">◫</span><small>Pedidos registrados</small><strong>{orders.length}</strong><em>Fluxo alterável em tempo real</em></article><article><span className="kpi-icon kpi-icon--orange">↺</span><small>Trocas em aberto</small><strong>{exchanges.filter((exchange) => !['TROCA NEGADA', 'TROCA PROCESSADA'].includes(exchange.status)).length}</strong><em className="warning-text">Exigem acompanhamento</em></article><article><span className="kpi-icon kpi-icon--red">!</span><small>Produtos com estoque baixo</small><strong>{products.filter(p => p.stock < 8).length}</strong><em className="warning-text">Necessitam atenção</em></article></section><section className="dashboard-grid"><article className="admin-panel chart-panel"><div className="panel-heading"><div><h2>Vendas por categoria</h2><p>Pedidos com pagamento realizado, em trânsito ou entregues</p></div></div><SalesChart /></article><article className="admin-panel activity-panel"><div className="panel-heading"><div><h2>Fluxos disponíveis</h2><p>Ações disponíveis na gestão</p></div></div><ul><li><span className="activity-icon">1</span><p><strong>Pedidos</strong><small>Quatro transições administrativas</small></p></li><li><span className="activity-icon">2</span><p><strong>Trocas</strong><small>Aceite, negativa, recebimento e processamento</small></p></li><li><span className="activity-icon">3</span><p><strong>Clientes</strong><small>Cadastro, consulta, alteração e inativação</small></p></li></ul></article></section><section className="admin-panel quick-table"><div className="panel-heading"><div><h2>Pedidos recentes</h2><p>Fluxo completo dos status exigidos</p></div><Link className="button button--outline" to="/admin/pedidos">Ver todos</Link></div><AdminTable columns={adminTables.orders.columns} rows={orders.slice(0, 5).map(order => orderRow(order, customers))} /></section></>
+  return <><div className="admin-page-heading"><div><span className="eyebrow">VISÃO GERAL</span><h1>Painel administrativo</h1><p>Gestão da operação e do catálogo da Tech Store.</p></div><Link className="button button--outline" to="/admin/analises">Analisar período</Link></div><section className="kpi-grid"><article><span className="kpi-icon kpi-icon--blue">↗</span><small>Receita aprovada</small><strong>{approvedTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong><em>Pedidos pagos, em trânsito e entregues</em></article><article><span className="kpi-icon kpi-icon--green">◫</span><small>Pedidos registrados</small><strong>{orders.length}</strong><em>Fluxo alterável em tempo real</em></article><article><span className="kpi-icon kpi-icon--orange">↺</span><small>Trocas em aberto</small><strong>{exchanges.filter((exchange) => !['TROCA NEGADA', 'TROCADO'].includes(exchange.statusDrs)).length}</strong><em className="warning-text">Exigem acompanhamento</em></article><article><span className="kpi-icon kpi-icon--red">!</span><small>Produtos com estoque baixo</small><strong>{products.filter(p => p.stock < 8).length}</strong><em className="warning-text">Necessitam atenção</em></article></section><section className="dashboard-grid"><article className="admin-panel chart-panel"><div className="panel-heading"><div><h2>Vendas por categoria</h2><p>Somente pedidos ENTREGUE, por mês da compra</p></div></div><SalesChart /></article><article className="admin-panel activity-panel"><div className="panel-heading"><div><h2>Fluxos disponíveis</h2><p>Ações disponíveis na gestão</p></div></div><ul><li><span className="activity-icon">1</span><p><strong>Pedidos</strong><small>Despacho e entrega</small></p></li><li><span className="activity-icon">2</span><p><strong>Trocas</strong><small>Autorização, recebimento e crédito</small></p></li><li><span className="activity-icon">3</span><p><strong>Clientes</strong><small>Cadastro, consulta, alteração e inativação</small></p></li></ul></article></section><section className="admin-panel quick-table"><div className="panel-heading"><div><h2>Pedidos recentes</h2><p>Fluxo completo dos status exigidos</p></div><Link className="button button--outline" to="/admin/pedidos">Ver todos</Link></div><AdminTable columns={adminTables.orders.columns} rows={orders.slice(0, 5).map(order => orderRow(order, customers))} /></section></>
 }
 
 function AdminTable({ columns, rows, actionLabels = [], actionLabelsForRow, onAction, actionsDisabled = false }: { columns: readonly string[]; rows: readonly AdminRow[]; actionLabels?: string[]; actionLabelsForRow?: (row: readonly string[]) => string[]; onAction?: (action: string, id: string) => void; actionsDisabled?: boolean }) {
@@ -36,37 +40,36 @@ function AdminTable({ columns, rows, actionLabels = [], actionLabelsForRow, onAc
 }
 
 function exchangeAdminAction(exchange: DemoExchange) {
-  if (exchange.status === 'TROCA SOLICITADA') return 'Aceitar ou negar'
-  if (exchange.status === 'ITEM ENVIADO') return 'Confirmar recebimento'
-  if (exchange.status === 'ITEM RECEBIDO') return 'Processar troca'
+  if (exchange.status === 'TROCA SOLICITADA') return 'Autorizar troca'
+  if (['TROCA ACEITA', 'ITEM ENVIADO'].includes(exchange.status)) return 'Confirmar recebimento'
   return null
 }
 
 function exchangeWaitingLabel(exchange: DemoExchange) {
   if (exchange.status === 'TROCA ACEITA') return 'Aguardando despacho do cliente'
   if (exchange.status === 'TROCA NEGADA') return 'Troca negada'
-  if (exchange.status === 'TROCA PROCESSADA') return 'Fluxo concluído'
+  if (exchange.statusDrs === 'TROCADO') return 'Fluxo concluído'
   return 'Aguardando próxima etapa'
 }
 
-function AdminExchangeStatusTable({ exchanges, customers, updateExchangeStatus }: { exchanges: DemoExchange[]; customers: DemoCustomer[]; updateExchangeStatus: (id: string, status: ExchangeStatus, reentrada?: boolean, observacoes?: string) => Promise<unknown> }) {
+function AdminExchangeStatusTable({ exchanges, customers, updateExchangeStatus }: { exchanges: DemoExchange[]; customers: DemoCustomer[]; updateExchangeStatus: (id: string, status: ExchangeAction, reentrada?: boolean, observacoes?: string) => Promise<unknown> }) {
   const [selectedExchange, setSelectedExchange] = useState<DemoExchange | null>(null)
   const nextOptions = selectedExchange?.status === 'TROCA SOLICITADA'
-    ? ['TROCA ACEITA', 'TROCA NEGADA']
-    : selectedExchange && nextExchangeStatus[selectedExchange.status]
-      ? [nextExchangeStatus[selectedExchange.status]!]
+    ? ['TROCA AUTORIZADA']
+    : selectedExchange && ['TROCA ACEITA', 'ITEM ENVIADO'].includes(selectedExchange.status)
+      ? ['TROCADO']
       : []
   const fields: EditorField[] = selectedExchange ? [
     { name: 'exchange', label: 'Solicitação', value: selectedExchange.id, readOnly: true },
     { name: 'order', label: 'Pedido original', value: `Pedido ${selectedExchange.orderNumber}`, readOnly: true },
     { name: 'customer', label: 'Cliente', value: customers.find((customer) => customer.id === selectedExchange.customerId)?.name ?? selectedExchange.customerId, readOnly: true },
-    { name: 'currentStatus', label: 'Status atual', value: selectedExchange.status, readOnly: true },
+    { name: 'currentStatus', label: 'Status atual', value: selectedExchange.statusDrs, readOnly: true },
     { name: 'nextStatus', label: selectedExchange.status === 'TROCA SOLICITADA' ? 'Decisão' : 'Próximo status permitido', value: nextOptions[0], type: 'select', options: nextOptions },
-    ...(selectedExchange.status === 'ITEM ENVIADO' ? [{ name: 'reentrada', label: 'Retornar item ao estoque?', value: '', type: 'select' as const, options: ['', 'Sim', 'Não'], required: true }] : []),
+    ...(['TROCA ACEITA', 'ITEM ENVIADO'].includes(selectedExchange.status) ? [{ name: 'reentrada', label: 'Retornar item ao estoque?', value: '', type: 'select' as const, options: ['', 'Sim', 'Não'], required: true }] : []),
     { name: 'notes', label: 'Observações', value: '', type: 'textarea' },
   ] : []
 
-  return <><table><thead><tr><th>Solicitação</th><th>Pedido</th><th>Cliente</th><th>Produto</th><th>Status</th><th>Próxima ação</th></tr></thead><tbody>{exchanges.map((exchange) => { const action = exchangeAdminAction(exchange); return <tr key={exchange.id}><td><strong>{exchange.id}</strong></td><td>Pedido {exchange.orderNumber}</td><td>{customers.find((customer) => customer.id === exchange.customerId)?.name ?? exchange.customerId}</td><td>{exchange.productName}</td><td><span className={`status ${statusClass(exchange.status)}`}>{exchange.status}</span></td><td>{action ? <button className="table-action" disabled={selectedExchange !== null} onClick={() => setSelectedExchange(exchange)}>{action}</button> : <span>{exchangeWaitingLabel(exchange)}</span>}</td></tr> })}</tbody></table>{selectedExchange && <MockEditor key={selectedExchange.id + selectedExchange.status} title={`${exchangeAdminAction(selectedExchange)}: ${selectedExchange.id}`} description="A alteração será refletida imediatamente para o administrador e para o cliente." fields={fields} submitLabel="Aplicar transição" onSave={async (values) => { await updateExchangeStatus(selectedExchange.id, values.nextStatus as ExchangeStatus, selectedExchange.status === 'ITEM ENVIADO' ? values.reentrada === 'Sim' : undefined, values.notes); setSelectedExchange(current => current === selectedExchange ? null : current) }} onClose={() => setSelectedExchange(current => current === selectedExchange ? null : current)} />}</>
+  return <><table><thead><tr><th>Solicitação</th><th>Pedido</th><th>Cliente</th><th>Produto</th><th>Status</th><th>Próxima ação</th></tr></thead><tbody>{exchanges.map((exchange) => { const action = exchangeAdminAction(exchange); return <tr key={exchange.id}><td><strong>{exchange.id}</strong></td><td>Pedido {exchange.orderNumber}</td><td>{customers.find((customer) => customer.id === exchange.customerId)?.name ?? exchange.customerId}</td><td>{exchange.productName}</td><td><span className={`status ${statusClass(exchange.statusDrs)}`}>{exchange.statusDrs}</span></td><td>{action ? <button className="table-action" disabled={selectedExchange !== null} onClick={() => setSelectedExchange(exchange)}>{action}</button> : <span>{exchangeWaitingLabel(exchange)}</span>}</td></tr> })}</tbody></table>{selectedExchange && <MockEditor key={selectedExchange.id + selectedExchange.status} title={`${exchangeAdminAction(selectedExchange)}: ${selectedExchange.id}`} description="A alteração será refletida imediatamente para o administrador e para o cliente." fields={fields} submitLabel="Aplicar transição" onSave={async (values) => { await updateExchangeStatus(selectedExchange.id, values.nextStatus as ExchangeAction, ['TROCA ACEITA', 'ITEM ENVIADO'].includes(selectedExchange.status) ? values.reentrada === 'Sim' : undefined, values.notes); setSelectedExchange(current => current === selectedExchange ? null : current) }} onClose={() => setSelectedExchange(current => current === selectedExchange ? null : current)} />}</>
 }
 
 function ProductEditor({ product, onClose }: { product?: Produto; onClose: () => void }) {
@@ -127,8 +130,8 @@ export function AdminModulePage({ module }: { module: AdminModule }) {
 function orderOptions(order: DemoOrder): OrderStatus[] {
   const transitions: Partial<Record<OrderStatus, OrderStatus[]>> = {
     'EM ABERTO': ['EM PROCESSAMENTO', 'CANCELADO'],
-    'EM PROCESSAMENTO': ['APROVADA', 'PAGAMENTO REALIZADO', 'CANCELADO', 'REPROVADA'],
-    'APROVADA': ['EM TRANSPORTE', 'EM TRÂNSITO'], 'PAGAMENTO REALIZADO': ['EM TRANSPORTE', 'EM TRÂNSITO'],
+    'EM PROCESSAMENTO': ['CANCELADO'],
+    'APROVADA': ['EM TRANSPORTE'], 'PAGAMENTO REALIZADO': ['EM TRANSPORTE'],
     'EM TRANSPORTE': ['ENTREGUE'], 'EM TRÂNSITO': ['ENTREGUE'],
   }
   return transitions[order.status] ?? [order.status]
@@ -136,9 +139,9 @@ function orderOptions(order: DemoOrder): OrderStatus[] {
 
 export function AdminExchangesPage() {
   const { exchanges, customers, updateExchangeStatus } = useDemoStore()
-  return <><div className="admin-page-heading"><div><span className="eyebrow">PÓS-VENDA</span><h1>Gestão de trocas</h1><p>Autorize trocas, registre o recebimento e escolha a reentrada no estoque. O crédito é gerado ao receber o item.</p></div></div><section className="exchange-flow exchange-flow--six"><div className="active"><b>1</b><span><strong>TROCA SOLICITADA</strong><small>Análise administrativa</small></span></div><i>→</i><div><b>2</b><span><strong>TROCA ACEITA/NEGADA</strong><small>Decisão registrada</small></span></div><i>→</i><div><b>3</b><span><strong>ITEM ENVIADO</strong><small>Despacho do cliente</small></span></div><i>→</i><div><b>4</b><span><strong>ITEM RECEBIDO</strong><small>Confirmação administrativa</small></span></div><i>→</i><div><b>5</b><span><strong>TROCA PROCESSADA</strong><small>Fluxo concluído</small></span></div></section><section className="admin-panel module-panel"><AdminExchangeStatusTable exchanges={exchanges} customers={customers} updateExchangeStatus={updateExchangeStatus} /></section></>
+  return <><div className="admin-page-heading"><div><span className="eyebrow">PÓS-VENDA</span><h1>Gestão de trocas</h1><p>Autorize trocas e confirme o recebimento. O crédito é gerado ao receber o item.</p></div></div><section className="exchange-flow"><div className="active"><b>1</b><span><strong>EM TROCA</strong><small>Solicitação do cliente</small></span></div><i>→</i><div><b>2</b><span><strong>TROCA AUTORIZADA</strong><small>Autorização e envio dos itens</small></span></div><i>→</i><div><b>3</b><span><strong>TROCADO</strong><small>Recebimento, estoque e cupom</small></span></div></section><section className="admin-panel module-panel"><AdminExchangeStatusTable exchanges={exchanges} customers={customers} updateExchangeStatus={updateExchangeStatus} /></section></>
 }
 
 export function AdminAnalyticsPage() {
-  return <><div className="admin-page-heading"><div><span className="eyebrow">ANÁLISE DE VENDAS</span><h1>Evolução das vendas</h1><p>Valores provenientes dos pedidos persistidos com pagamento aprovado.</p></div></div><section className="admin-panel analytics-chart"><SalesChart /></section></>
+  return <><div className="admin-page-heading"><div><span className="eyebrow">ANÁLISE DE VENDAS</span><h1>Evolução das vendas</h1><p>Compare categorias por mês, considerando somente os pedidos entregues.</p></div></div><section className="admin-panel analytics-chart"><SalesChart /></section></>
 }

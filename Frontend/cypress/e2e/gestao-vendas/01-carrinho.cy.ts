@@ -2,7 +2,7 @@ import { prepararPedido, iniciarCarrinho } from '../../support/pedido'
 import { apiCustomer, mostrarProdutoNoCatalogo, selectProfile } from '../../support/data'
 
 describe('Vendas 01 — carrinho e disponibilidade', () => {
-  it('[RF0031][RF0032][RN0031][RN0044][RN0045] inclui vários itens, altera, remove e libera a reserva sem baixar estoque físico', () => {
+  it('[RF0031][RF0032][RN0031][RN0044] adiciona dois produtos, altera quantidades e remove itens liberando a reserva', () => {
     prepararPedido().then(base => {
       iniciarCarrinho(base, true)
       cy.request('/api/produtos/' + base.produtos[0].id).then(({ body }) => {
@@ -21,7 +21,7 @@ describe('Vendas 01 — carrinho e disponibilidade', () => {
     })
   })
 
-  it('[RN0031] exibe produto sem estoque como indisponível e rejeita sua inclusão no servidor', () => {
+  it('[RF0031][RN0031] impede adicionar produto indisponível na tela e na API', () => {
     prepararPedido().then(base => {
       const produto = base.produtos[0]
       cy.request('/api/produtos/' + produto.id).then(({ body }) => {
@@ -37,7 +37,7 @@ describe('Vendas 01 — carrinho e disponibilidade', () => {
     })
   })
 
-  it('[RN0044][RN0045][RN0031] outro cliente não consome unidades reservadas e pode comprá-las após a remoção', () => {
+  it('[RN0031][RN0044] reserva unidades para um cliente e só as libera ao remover o item', () => {
     prepararPedido().then(base => {
       iniciarCarrinho(base)
       apiCustomer().then(outro => {

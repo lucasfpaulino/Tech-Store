@@ -7,12 +7,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
-/** Adaptador de testes: não envia dados nem realiza cobranças em operadoras. */
+/** Processador de pagamento simulado. */
 @Service
 public class ProcessadorPagamentoLocal implements ProcessadorPagamento {
     public Resultado autorizar(CartaoModel cartao,BigDecimal valor) {
         boolean valido=valor.signum()>0 && !YearMonth.parse(cartao.getValidade(),DateTimeFormatter.ofPattern("MM/yy")).isBefore(YearMonth.now());
-        // Número fictício 4000 0000 0000 0002 permite demonstrar recusa no ambiente local.
+        // Cartão fictício para simular recusa
         return new Resultado(valido&&!cartao.getUltimosDigitos().equals("0002"),"LOCAL-"+UUID.randomUUID());
     }
 }

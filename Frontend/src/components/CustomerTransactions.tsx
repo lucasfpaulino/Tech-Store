@@ -17,7 +17,7 @@ const activityLabels: Record<string, string> = {
 const entityLabels: Record<string, string> = { Cliente: 'Cliente', Endereco: 'Endereço', Cartao: 'Cartão', Carrinho: 'Carrinho', Pedido: 'Pedido', Troca: 'Troca', Cupom: 'Cupom', Estoque: 'Estoque' }
 
 function TransactionStatus({ status }: { status: string }) {
-  const tone = ['ENTREGUE', 'PAGAMENTO REALIZADO', 'APROVADA', 'APROVADO', 'TROCA PROCESSADA', 'Disponível'].includes(status)
+  const tone = ['ENTREGUE', 'PAGAMENTO REALIZADO', 'APROVADA', 'APROVADO', 'TROCADO', 'Disponível'].includes(status)
     ? 'success' : ['CANCELADO', 'REPROVADA', 'REPROVADO', 'TROCA NEGADA', 'Expirado'].includes(status) ? 'warning' : 'info'
   return <span className={`status status--${tone}`}>{status}</span>
 }
@@ -56,7 +56,7 @@ export function CustomerTransactions({ data }: { data: Transacoes }) {
         </TransactionGroup>
         <TransactionGroup title="Trocas" count={data.trocas.length}>
           {data.trocas.map(t => <li key={t.id}>
-            <div className="transaction-list__heading"><Link to={orderPath(t.orderId)}>Pedido {t.orderNumber}</Link><TransactionStatus status={t.status} /></div>
+            <div className="transaction-list__heading"><Link to={orderPath(t.orderId)}>Pedido {t.orderNumber}</Link><TransactionStatus status={t.statusDrs} /></div>
             <p>{t.productName}</p><div className="transaction-list__footer"><span>{t.quantity ?? 1} unidade(s)</span><Link to={admin ? '/admin/trocas' : '/trocas'}>Acompanhar troca →</Link></div>
           </li>)}
         </TransactionGroup>

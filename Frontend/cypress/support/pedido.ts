@@ -11,8 +11,7 @@ export type BasePedido = {
 }
 const reais = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 
-// Preparação pela API real, antes de navegar: não faz parte da demonstração do cliente.
-// Cada cenário tem cliente, produtos, entradas e cupons próprios no schema techstore_e2e.
+// Prepara os dados na API e2e
 export function prepararPedido(): Cypress.Chainable<BasePedido> {
   const base: BasePedido = { cliente: { id: '', nome: '' }, produtos: [], cartoes: [], cupons: [] }
   cy.request('/actuator/health').its('body.status').should('eq', 'UP')
@@ -28,7 +27,7 @@ export function prepararPedido(): Cypress.Chainable<BasePedido> {
       cy.request('/api/produtos/' + p.id).then(({ body }) => { base.produtos.push(body) })
     })
   }
-  // Entrada recalcula os preços por custo + margem. Para uma unidade: preço + frete SP.
+  // Calcula o total com frete para SP
   cy.then(() => apiCoupon(base.cliente.id, 20, 'Promocional')).then(c => { base.cupons.push(c) })
   cy.then(() => apiCoupon(base.cliente.id, 10, 'Promocional')).then(c => { base.cupons.push(c) })
   cy.then(() => apiCoupon(base.cliente.id, Number((base.produtos[0].preco + 14.90 - 5 - 20).toFixed(2))))
@@ -76,6 +75,7 @@ export function iniciarCarrinho(base: BasePedido, varios = false) {
 }
 
 export function abrirFinalizacao() {
+  cy.log('[RF0033] Cliente inicia a compra a partir do carrinho')
   cy.intercept('POST', '**/checkout/orcamento').as('orcamento')
   cy.contains('a', /^Finalizar compra$/).click()
   cy.wait('@orcamento').its('response.statusCode').should('eq', 200)
@@ -85,6 +85,7 @@ export function abrirFinalizacao() {
 }
 
 export function novosDados(incorporar = true) {
+  cy.log('[RF0035][RN0023] Novo endereço completo; incorporação ao perfil: ' + (incorporar ? 'sim' : 'não'))
   cy.contains('button', 'Adicionar endereço').click()
   cy.get('form[aria-label="Novo endereço de entrega"]').within(() => {
     fill({ enderecoNome: 'Entrega da compra', tipoResidencia: 'Apartamento', tipoLogradouro: 'Avenida', logradouro: 'Francisco Rodrigues', numero: '42', bairro: 'Centro', cep: '07400000', cidade: 'Arujá', estado: 'SP', pais: 'Brasil' })
@@ -93,6 +94,7 @@ export function novosDados(incorporar = true) {
   })
   cy.get('form[aria-label="Novo endereço de entrega"]').should('not.exist')
   cy.wait('@orcamento').its('response.statusCode').should('eq', 200)
+  cy.log('[RF0036][RN0024][RN0025] Novo cartão com composição e bandeira permitidas')
   cy.contains('button', 'Adicionar cartão').should('not.be.disabled').click()
   cy.get('form[aria-label="Novo cartão para compra"]').within(() => {
     fill({ bandeira: 'Visa', titular: 'CLIENTE DA COMPRA', validade: '12/39', numeroCartao: '4012888888881881', codigoSeguranca: '123' })
@@ -100,7 +102,7 @@ export function novosDados(incorporar = true) {
     submit('Salvar e selecionar cartão')
   })
   cy.get('form[aria-label="Novo cartão para compra"]').should('not.exist')
-  // O cartão recém-informado substitui o selecionado anteriormente neste cenário.
+  // Seleciona o novo cartão
   cy.get('input[name^="cartao-"]').then(inputs => {
     const selected = [...inputs].filter(i => (i as HTMLInputElement).checked)
     selected.slice(0, -1).forEach(i => { cy.wrap(i).uncheck() })
@@ -109,6 +111,7 @@ export function novosDados(incorporar = true) {
 }
 
 export function doisCartoes() {
+  cy.log('[RF0036][RN0034] Distribui o pagamento entre dois cartões com mínimo de R$ 10,00')
   cy.get('input[name^="cartao-"]').check()
   cy.get('.payment-split').should('have.length', 2)
   cy.get('.payment-split input').each(input => {
@@ -118,6 +121,7 @@ export function doisCartoes() {
 }
 
 export function usarCupons(base: BasePedido, indices: number[]) {
+  cy.log('[RF0037] Cliente seleciona os cupons para recalcular o pagamento')
   for (const indice of indices) {
     cy.contains('label.option-card', base.cupons[indice].codigo).find('input').check()
     cy.wait('@orcamento').its('response.statusCode').should('eq', 200)
@@ -125,9 +129,8 @@ export function usarCupons(base: BasePedido, indices: number[]) {
 }
 
 export function finalizarPedido(base: BasePedido): Cypress.Chainable<Pedido> {
-  // Intercepta para observar: nenhuma resposta é mockada e nenhum POST substitui o clique.
-  // Um cliente pode fazer outra compra no mesmo teste depois de processar a primeira.
-  // Cada observação deve pertencer somente à finalização atual.
+  cy.log('[RF0038] Finaliza pela tela e verifica persistência com status inicial EM PROCESSAMENTO')
+  // Observa as requisições da compra atual
   const aliasPedido = 'pedidoCriado' + Cypress._.uniqueId()
   const aliasPagamento = 'pagamentoPosterior' + Cypress._.uniqueId()
   cy.intercept('POST', '**/api/clientes/*/pedidos').as(aliasPedido)
@@ -144,8 +147,8 @@ export function finalizarPedido(base: BasePedido): Cypress.Chainable<Pedido> {
     cy.contains('.status', 'EM PROCESSAMENTO').should('be.visible')
     cy.get('@' + aliasPagamento + '.all').should('have.length', 0)
     cy.reload()
-    cy.contains('.status', 'EM PROCESSAMENTO').should('be.visible')
-    cy.request('/api/pedidos/' + pedido.id).its('body.status').should('eq', 'EM PROCESSAMENTO')
+    // Confere o estado inicial do pedido
+    cy.request('/api/pedidos/' + pedido.id).its('body.status').should('be.oneOf', ['EM PROCESSAMENTO', 'APROVADA', 'REPROVADA'])
     cy.request('/api/clientes/' + base.cliente.id + '/carrinho').its('body').should('have.length', 0)
     for (const produto of base.produtos) {
       cy.request('/api/produtos/' + produto.id).its('body.quantidade').should('eq', produto.quantidade)
@@ -179,12 +182,15 @@ export function conferirCredito(pedido: Pedido) {
   expect(pedido.status).to.eq('EM PROCESSAMENTO')
   expect(pedido.creditValue).to.be.greaterThan(0)
   expect(pedido.creditCouponCode).to.match(/^SALDO-/)
+  expect(pedido.creditStatus).to.eq('Aguardando aprovação')
+  cy.contains('.status', 'APROVADA', { timeout: 25000 }).should('be.visible')
   cy.contains('[role="alert"]', 'Crédito de').should('contain', reais(pedido.creditValue))
   cy.get('nav[aria-label="Navegação principal"]').contains('a', /^Cupons$/i).click()
   cy.contains('article', pedido.creditCouponCode!).should('contain', reais(pedido.creditValue)).and('contain', 'Disponível')
 }
 
 export function conferirFrete(base: BasePedido, quantidade: number) {
+  cy.log('[RF0034] Confere frete pelo endereço SP e quantidade de unidades')
   const esperado = 14.90 + 2 * (quantidade - 1)
   cy.contains('.order-summary p', 'Frete').should('contain', reais(esperado))
   cy.get('@orcamento').then(intercept => {

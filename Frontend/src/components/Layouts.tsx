@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { MockAiChat } from './MockAiChat'
 import { ApiFeedback } from './ApiFeedback'
+import { Alert } from '@mui/material'
 import { useDemoStore } from '../context/DemoContext'
 
 const storeLinks = [
@@ -90,7 +91,8 @@ export function StoreLayout() {
 }
 
 export function AdminLayout() {
-  const { notification, clearNotification } = useDemoStore()
+  const { notification, clearNotification, isAdminProfile } = useDemoStore()
+  if (!isAdminProfile) return <main className="page-width standard-page" data-testid="admin-access-denied"><Alert severity="warning">Acesso restrito ao perfil administrador.</Alert><p>Selecione o perfil Admin para acessar a gestão da Tech Store.</p><NavLink className="button" to="/perfis">Selecionar perfil</NavLink></main>
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">

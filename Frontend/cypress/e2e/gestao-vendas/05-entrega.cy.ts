@@ -2,7 +2,7 @@ import { selectProfile } from '../../support/data'
 import { alterarStatusAdmin, conferirEstoque, prepararVenda } from '../../support/vendas'
 
 describe('Vendas 05 — despacho, entrega e consulta', () => {
-  it('[RF0039][RF0040][RN0039][RN0040] admin despacha pedido aprovado e confirma entrega; cliente consulta o resultado', () => {
+  it('[RF0039][RF0040][RN0039][RN0040] admin altera APROVADA para EM TRANSPORTE e ENTREGUE; cliente consulta', () => {
     prepararVenda('APROVADA').then(({ base, pedido }) => {
       alterarStatusAdmin(pedido, 'EM TRANSPORTE')
       alterarStatusAdmin(pedido, 'ENTREGUE')

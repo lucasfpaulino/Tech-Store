@@ -29,7 +29,7 @@ public class AnaliseVendaService {
         return new Resultado(inicio,fim,meses.stream().map(YearMonth::toString).toList(),cats.stream()
             .sorted(Comparator.comparing(c->c.getNome())).map(c->new Serie(c.getId(),c.getNome(),meses.stream()
                 .map(m->valores.getOrDefault(c.getId(),Map.of()).getOrDefault(m,new BigDecimal("0.00"))).toList())).toList(),
-            "Valor bruto dos itens de pedidos aprovados, em transporte ou entregues; sem frete. Categorias podem se sobrepor e não devem ser somadas como receita líquida.");
+            "Somente pedidos ENTREGUE. Soma do preço histórico × quantidade dos itens, por categoria e mês da compra; sem frete. Categorias sobrepostas não devem ser somadas como receita líquida.");
     }
     public String exportar(LocalDate inicio,LocalDate fim,List<UUID> ids) {
         var r=consultar(inicio,fim,ids); var csv=new StringBuilder("\uFEFFInício;Fim;Mês;Categoria;Valor (R$)\r\n");

@@ -28,6 +28,9 @@ public class PedidoModel extends BaseModel {
     @OneToOne(fetch=FetchType.LAZY) @JoinColumn(name="cupom_saldo_id",unique=true) private CupomModel cupomSaldo;
     private java.util.UUID chaveOperacao;
     private java.time.Instant expiraEm;
+    private java.time.Instant pagamentoAgendadoEm;
+    public java.time.Instant getPagamentoAgendadoEm() { return pagamentoAgendadoEm; }
+    public void setPagamentoAgendadoEm(java.time.Instant instante) { pagamentoAgendadoEm=instante; }
     @Column(nullable=false) private boolean controlaEstoque;
     public BigDecimal getSubtotal() { return subtotal; }
     public void setSubtotal(BigDecimal valor) { subtotal=valor; }

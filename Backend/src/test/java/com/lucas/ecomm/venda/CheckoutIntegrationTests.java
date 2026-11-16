@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** Dados criados pela API e revertidos por transação no schema exclusivo de integração. */
+/** Testes no schema de integração. */
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("integration") @Transactional
 @EnabledIfEnvironmentVariable(named="RUN_DB_TESTS", matches="true")
 class CheckoutIntegrationTests {
@@ -30,6 +30,7 @@ class CheckoutIntegrationTests {
     @Autowired EntityManager em;
     @Autowired CarrinhoService carrinhos;
     @Autowired PedidoService pedidos;
+    @Autowired com.lucas.ecomm.venda.repository.PedidoRepository repositoryPedidos;
 
     private JsonNode postJson(String path,Object body,int expected) throws Exception {
         var response=mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)))
@@ -157,6 +158,79 @@ class CheckoutIntegrationTests {
     @Test void rejeitaDoisPromocionaisECuponsDesnecessarios() throws Exception {
         String c=cliente("52998224725"),p=produto(),a=cupom(c,"Promocional",20),b=cupom(c,"Promocional",10),x=cupom(c,"Troca",150); adicionar(c,p,1);
         orcamento(c,endereco(c),List.of(a,b),400); orcamento(c,endereco(c),List.of(x,a),400);
+    }
+    private JsonNode compraComExcedente(String c,String p,String v) throws Exception {
+        adicionar(c,p,1);
+        var q=orcamento(c,endereco(c),List.of(v),200);
+        return postJson("/api/clientes/"+c+"/pedidos",compra(endereco(c),List.of(v),q,List.of()),201);
+    }
+    private String credito(JsonNode pedido) {
+        return jdbc.queryForObject("select id::text from cupons where codigo=?",String.class,pedido.get("creditCouponCode").asString());
+    }
+    @Test void creditoPendenteNaoPodePagarOutraCompraECancelamentoNaoDuplicaSaldo() throws Exception {
+        String c=cliente("52998224725"),p=produto(),v=cupom(c,"Troca",150);
+        var pedido=compraComExcedente(c,p,v); var saldo=credito(pedido);
+        assertThat(pedido.get("creditStatus").asString()).isEqualTo("Aguardando aprovação");
+        assertThat(pedido.get("creditValue").decimalValue()).isEqualByComparingTo("35.10");
+        orcamento(c,endereco(c),List.of(saldo),409);
+        mvc.perform(patch("/api/clientes/"+c+"/pedidos/"+pedido.get("id").asString()+"/status")
+            .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"CANCELADO\"}")).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("select liberacao from cupons where id=?::uuid",String.class,saldo)).isEqualTo("INVALIDADO");
+        assertThat(jdbc.queryForObject("select utilizado from cupons where id=?::uuid",Boolean.class,v)).isFalse();
+        assertThat(estoque(p)).isEqualTo(10); assertThat(reservado(p)).isZero();
+        orcamento(c,endereco(c),List.of(saldo),409);
+    }
+    @Test void cupomVencidoReprovaEInvalidaCreditoExcedenteSemBaixa() throws Exception {
+        String c=cliente("52998224725"),p=produto(),v=cupom(c,"Troca",150);
+        var pedido=compraComExcedente(c,p,v); var saldo=credito(pedido);
+        jdbc.update("update cupons set validade=current_date-1 where id=?::uuid",v); em.clear();
+        var recusado=processar(pedido.get("id").asString());
+        assertThat(recusado.get("status").asString()).isEqualTo("REPROVADA");
+        assertThat(recusado.get("creditStatus").asString()).isEqualTo("Invalidado");
+        assertThat(estoque(p)).isEqualTo(10); assertThat(reservado(p)).isZero();
+        orcamento(c,endereco(c),List.of(saldo),409);
+    }
+    @Test void pedidoExpiradoInvalidaCreditoEDevolveSomenteCuponsOriginais() throws Exception {
+        String c=cliente("52998224725"),p=produto(),v=cupom(c,"Troca",150);
+        var pedido=compraComExcedente(c,p,v); var saldo=credito(pedido);
+        jdbc.update("update pedidos set expira_em=now()-interval '1 second' where id=?::uuid",pedido.get("id").asString()); em.clear();
+        var recusado=processar(pedido.get("id").asString());
+        assertThat(recusado.get("status").asString()).isEqualTo("REPROVADA");
+        assertThat(recusado.get("creditStatus").asString()).isEqualTo("Invalidado");
+        assertThat(jdbc.queryForObject("select utilizado from cupons where id=?::uuid",Boolean.class,v)).isFalse();
+        assertThat(estoque(p)).isEqualTo(10); assertThat(reservado(p)).isZero();
+        orcamento(c,endereco(c),List.of(saldo),409);
+    }
+    @Test void creditoSomenteELiberadoAposAprovacaoEFuncionaEmNovaCompra() throws Exception {
+        String c=cliente("52998224725"),p=produto(),v=cupom(c,"Troca",150),a=cartao(c,"4111111111111111");
+        var pedido=compraComExcedente(c,p,v); var saldo=credito(pedido);
+        orcamento(c,endereco(c),List.of(saldo),409);
+        var aprovado=processar(pedido.get("id").asString()); processar(pedido.get("id").asString());
+        assertThat(aprovado.get("creditStatus").asString()).isEqualTo("Disponível");
+        adicionar(c,p,1); var q=orcamento(c,endereco(c),List.of(saldo),200);
+        assertThat(q.get("totalCartoes").decimalValue()).isEqualByComparingTo("79.80");
+        var segunda=postJson("/api/clientes/"+c+"/pedidos",compra(endereco(c),List.of(saldo),q,List.of(pagamento(a,79.80))),201);
+        assertThat(processar(segunda.get("id").asString()).get("status").asString()).isEqualTo("APROVADA");
+        assertThat(estoque(p)).isEqualTo(8); orcamento(c,endereco(c),List.of(saldo),409);
+        assertThat(jdbc.queryForObject("select count(*) from auditorias where operacao='LIBERAR_CREDITO' and entidade=?",Integer.class,"Cupom:"+saldo)).isEqualTo(1);
+    }
+    @Test void processamentoAgendadoRespeitaPrazoEDecideSemUsuarioSemDuplicarBaixa() throws Exception {
+        String c=cliente("52998224725"),p=produto(),a=cartao(c,"4111111111111111"); adicionar(c,p,1);
+        var q=orcamento(c,endereco(c),List.of(),200);
+        var pedido=postJson("/api/clientes/"+c+"/pedidos",compra(endereco(c),List.of(),q,List.of(pagamento(a,114.90))),201);
+        UUID id=UUID.fromString(pedido.get("id").asString());
+        // Controla o processamento pelo prazo persistido
+        jdbc.update("update pedidos set pagamento_agendado_em=now()+interval '1 minute' where id=?",id); em.clear();
+        pedidos.processarAgendado(id);
+        assertThat(repositoryPedidos.findById(id).orElseThrow().getStatus()).isEqualTo("EM PROCESSAMENTO");
+        jdbc.update("update pedidos set pagamento_agendado_em=now()-interval '1 second' where id=?",id); em.clear();
+        assertThat(repositoryPedidos.pagamentosPendentes(java.time.Instant.now(),org.springframework.data.domain.PageRequest.of(0,25))).contains(id);
+        pedidos.processarAgendado(id); pedidos.processarAgendado(id);
+        assertThat(repositoryPedidos.findById(id).orElseThrow().getStatus()).isEqualTo("APROVADA");
+        assertThat(repositoryPedidos.findById(id).orElseThrow().getPagamentoAgendadoEm()).isNull();
+        assertThat(estoque(p)).isEqualTo(9); assertThat(reservado(p)).isZero();
+        em.flush(); // Persiste a auditoria
+        assertThat(jdbc.queryForObject("select count(*) from auditorias where operacao='APROVAR_PAGAMENTO' and entidade=?",Integer.class,"Pedido:"+id)).isEqualTo(1);
     }
     @Test void combinaDoisCuponsDeTrocaComPromocionalERejeitaCupomJaUsado() throws Exception {
         String c=cliente("52998224725"),p=produto(),a=cartao(c,"4111111111111111"),v=cupom(c,"Troca",20),w=cupom(c,"Troca",10),x=cupom(c,"Promocional",5); adicionar(c,p,1);
@@ -309,8 +383,8 @@ class CheckoutIntegrationTests {
     }
 
     @Test void consultasSemParametrosObrigatoriosRetornam400() throws Exception {
-        mvc.perform(get("/api/analises/vendas")).andExpect(status().isBadRequest()).andExpect(jsonPath("$.fields.inicio").exists());
-        mvc.perform(get("/api/analises/vendas/exportacao").param("inicio","2026-01-01"))
+        mvc.perform(get("/api/analises/vendas").header("X-Perfil","ADMIN")).andExpect(status().isBadRequest()).andExpect(jsonPath("$.fields.inicio").exists());
+        mvc.perform(get("/api/analises/vendas/exportacao").header("X-Perfil","ADMIN").param("inicio","2026-01-01"))
             .andExpect(status().isBadRequest()).andExpect(jsonPath("$.fields.fim").exists());
     }
 

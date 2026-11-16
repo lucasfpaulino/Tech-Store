@@ -1,11 +1,10 @@
 import { selectProfile } from '../../support/data'
 import { abrirFinalizacao, finalizarPedido, iniciarCarrinho, novosDados, prepararPedido, usarCupons, conferirFrete, conferirPerfil } from '../../support/pedido'
-import { alterarStatusAdmin, conferirAuditoriaCiclo, conferirCupomTroca, conferirEstoque, conferirNotificacao, decidirTroca, despacharTroca, encerrarTroca, processarPagamento, receberTroca, reutilizarCupomTroca, solicitarTroca } from '../../support/vendas'
+import { alterarStatusAdmin, conferirAuditoriaCiclo, conferirCupomTroca, conferirEstoque, conferirNotificacao, autorizarTroca, despacharTroca, encerrarTroca, aguardarPagamento, receberTroca, reutilizarCupomTroca, solicitarTroca } from '../../support/vendas'
 
-describe('Gestão de vendas — caminho completo pela interface', () => {
-  it('[RF0031–RF0045][RF0053][RF0054] compra, aprova, entrega, troca todos os itens e usa o cupom gerado em nova compra', () => {
+describe('Vendas 00 — caminho completo: compra, entrega, troca e nova compra', () => {
+  it('[RF0038][RF0045][RN0037][RN0042][RNF0012] conclui o ciclo completo pela interface e reutiliza o crédito da troca', () => {
     prepararPedido().then(base => {
-      // A API apenas cadastra as pré-condições; as operações deste caso ocorrem nas telas.
       iniciarCarrinho(base, true)
       abrirFinalizacao()
       conferirFrete(base, 4)
@@ -17,7 +16,7 @@ describe('Gestão de vendas — caminho completo pela interface', () => {
       finalizarPedido(base).then(pedido => {
         expect(pedido.payments).to.have.length(2)
         expect(pedido.couponCodes).to.include(base.cupons[0].codigo)
-        processarPagamento(pedido)
+        aguardarPagamento(pedido)
         conferirEstoque(base, pedido, true)
         conferirPerfil(base, true)
         alterarStatusAdmin(pedido, 'EM TRANSPORTE')
@@ -25,13 +24,12 @@ describe('Gestão de vendas — caminho completo pela interface', () => {
         selectProfile(base.cliente.id, '/pedidos')
         cy.get(`article[data-order-id="${pedido.id}"]`).should('contain', 'ENTREGUE')
 
-        // Cada item gera sua própria solicitação; só o conjunto de todos altera o pedido inteiro.
         solicitarTroca(base, pedido, pedido.items[0].productId, pedido.items[0].quantity).then(primeira => {
           cy.request(`/api/pedidos/${pedido.id}`).its('body.status').should('eq', 'ENTREGUE')
           solicitarTroca(base, pedido, pedido.items[1].productId, pedido.items[1].quantity).then(segunda => {
             cy.request(`/api/pedidos/${pedido.id}`).its('body.status').should('eq', 'EM TROCA')
-            decidirTroca(primeira)
-            decidirTroca(segunda)
+            autorizarTroca(primeira)
+            autorizarTroca(segunda)
             cy.request(`/api/pedidos/${pedido.id}`).its('body.status').should('eq', 'TROCA AUTORIZADA')
             conferirNotificacao(base)
             despacharTroca(base, primeira)

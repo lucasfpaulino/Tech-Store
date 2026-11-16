@@ -3,11 +3,11 @@ import { iniciarCarrinho, prepararPedido } from '../../support/pedido'
 import type { CartSummary } from '../../../src/services/vendaService'
 
 describe('Vendas 10 — prazo do bloqueio e expiração real', () => {
-  it('[RN0044][RN0045][RNF0042] backend remove todas as unidades ao expirar, libera estoque e bloqueia compra até nova inclusão', () => {
+  it('[RN0044][RN0045][RNF0042] expira a reserva, remove os itens, informa o motivo e exige nova inclusão', () => {
     prepararPedido().then(base => {
       iniciarCarrinho(base, true)
       cy.contains('a', /^Finalizar compra$/).should('have.attr', 'aria-disabled', 'false')
-      // Só muda o relógio da fixture. Remoção, liberação e motivo vêm do serviço real.
+      // Altera o prazo dos dados de teste
       cy.task('condicionarVenda', { clienteId: base.cliente.id, operacao: 'prazo', valor: -1 }).its('aplicado').should('eq', true)
       cy.reload()
       cy.get('.cart-line').should('not.exist')

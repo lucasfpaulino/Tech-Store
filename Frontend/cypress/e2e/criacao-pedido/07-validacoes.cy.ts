@@ -49,7 +49,7 @@ describe('Pedido — validações RF0035/RF0036/RN0023–RN0025/RN0033–RN0036'
   it('[RF0035][RF0036][RF0038][RN0023] rejeita endereço incompleto e cartão inválido (validação adicional), sem criar pedido', () => {
     prepararPedido().then(base => {
       iniciarCarrinho(base); abrirFinalizacao()
-      // Provas adicionais de fonte final da regra; os caminhos felizes são sempre pela interface.
+      // Confere as validações do backend
       cy.request({ method: 'POST', url: '/api/clientes/' + base.cliente.id + '/checkout/orcamento', body: { novoEndereco: { entrega: true }, cupomIds: [] }, failOnStatusCode: false }).its('status').should('eq', 400)
       cy.contains('button', 'Adicionar cartão').click()
       cy.get('form[aria-label="Novo cartão para compra"]').within(() => {
